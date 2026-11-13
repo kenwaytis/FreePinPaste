@@ -102,10 +102,8 @@ impl Editor {
         }
     }
     fn source_point(&self, p: gpui::Point<Pixels>) -> P {
-        self.document.clamp(P::new(
-            f32::from(p.x) / self.scale.0,
-            f32::from(p.y) / self.scale.1,
-        ))
+        self.document
+            .clamp(P::from_viewport(f32::from(p.x), f32::from(p.y), self.scale))
     }
     fn screen_rect(&self, r: Rect) -> Rect {
         Rect {

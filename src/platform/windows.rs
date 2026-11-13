@@ -4,7 +4,7 @@ use gpui::Window;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM},
         Graphics::Gdi::*,
         System::{
             LibraryLoader::GetModuleHandleW, RemoteDesktop::ProcessIdToSessionId,
@@ -102,13 +102,14 @@ impl Platform {
     pub fn borderless(&self, id: WindowId) -> Result<()> {
         unsafe {
             // GPUI 0.2.2 keeps Windows 10 resize insets even without a titlebar.
-            // Give these image windows a true full-size client area.
+            // Give these image windows a true full-size client area. WS_POPUP
+            // also avoids the DPI-scaled minimum size of an overlapped window.
             SetWindowSubclass(hwnd(id), Some(borderless_proc), 1, 0).ok()?;
             let style = GetWindowLongW(hwnd(id), GWL_STYLE) as u32;
             SetWindowLongW(
                 hwnd(id),
                 GWL_STYLE,
-                (style
+                ((style | WS_POPUP.0)
                     & !(WS_CAPTION.0
                         | WS_THICKFRAME.0
                         | WS_SYSMENU.0
@@ -243,6 +244,19 @@ unsafe extern "system" fn borderless_proc(
         match message {
             WM_NCCALCSIZE => return LRESULT(0),
             WM_NCHITTEST => return LRESULT(HTCLIENT as isize),
+            WM_GETDPISCALEDSIZE if overlay == 0 => {
+                // Pins are physical-pixel images, not DPI-scaled application
+                // windows. Tell the native move loop before WM_DPICHANGED so
+                // its suggested rectangle preserves both size and drag anchor.
+                let mut rect = RECT::default();
+                if GetWindowRect(hwnd, &mut rect).is_ok() {
+                    *(lparam.0 as *mut SIZE) = SIZE {
+                        cx: rect.right - rect.left,
+                        cy: rect.bottom - rect.top,
+                    };
+                    return LRESULT(1);
+                }
+            }
             WM_DPICHANGED if overlay == 1 => {
                 let result = DefSubclassProc(hwnd, message, wparam, lparam);
                 let _ = PostMessageW(Some(hwnd), WM_APP + 99, WPARAM(0), LPARAM(0));

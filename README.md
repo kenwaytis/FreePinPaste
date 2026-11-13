@@ -1,6 +1,6 @@
 # FreePinPaste
 
-面向 **Linux x86_64 / GNOME Wayland** 与 **Windows 10 22H2 x64** 的截图、标注和贴图工具。GUI 使用 **Rust + GPUI**，不使用 Qt。Linux 通过桌面 Portal 截图，不依赖 GNOME 截图扩展或切换到 Xorg；Windows 使用原生桌面 API 与 DirectX 界面。
+面向 **Linux x86_64 / GNOME Wayland** 与 **Windows 10 22H2 / Windows 11 x64** 的截图、标注和贴图工具。GUI 使用 **Rust + GPUI**，不使用 Qt。Linux 通过桌面 Portal 截图，不依赖 GNOME 截图扩展或切换到 Xorg；Windows 使用原生桌面 API 与 DirectX 界面。
 
 Windows 使用、构建和验收边界见 **[docs/windows.md](docs/windows.md)**。
 
@@ -10,7 +10,7 @@ Windows 使用、构建和验收边界见 **[docs/windows.md](docs/windows.md)**
 
 - 默认 **F1 截图**、**F3 置顶**。Linux 通过 GlobalShortcuts Portal 注册并在系统界面改键；Windows 在应用设置中改键，注册成功后才保存，冲突时保留原有绑定。
 - 完整桌面截图：Linux 使用 Screenshot Portal，包含原生 Wayland 窗口；Windows 使用原生 GDI 获取 SDR 桌面物理像素。
-- 全桌面选区、8 个调整手柄、选区移动、像素尺寸显示；Linux 三屏横排 5760×1080 已联调。Windows 已实现负坐标和 DPI 换算，当前开发机单屏验收，多屏混合 DPI 待实机补验。
+- 全桌面选区、8 个调整手柄、选区移动、像素尺寸显示；Linux 三屏横排 5760×1080 已联调。Windows 已通过 Windows 10 单屏及 Windows 11 双屏混合 DPI（175% / 100%）、负坐标和跨屏像素对齐验收。
 - 浅色浮动主工具栏、蓝色选中态；矩形/椭圆、直线/箭头、画笔均有附属参数栏和两行色板。
 - 文本输入、字号、粗体、斜体、字体配置。输入通过 GPUI Component 的文本控件处理。
 - 像素橡皮擦：擦除**标注层**，不破坏原截图；擦除也能撤销。
@@ -25,7 +25,7 @@ Windows 使用、构建和验收边界见 **[docs/windows.md](docs/windows.md)**
 ### 当前边界
 
 - Linux 针对当前 GNOME Wayland + XWayland 环境；尚未验收混合 DPI、旋转屏幕或其他桌面环境。
-- Windows 以 Windows 10 22H2 x64 验证；多屏混合 DPI 实机验收暂缓。不承诺 HDR 色彩管理、受保护视频、UAC 安全桌面或远程会话断开后的截图。
+- Windows 已验收 Windows 10 22H2 单屏和 Windows 11 Build 26300 双屏（4K 175% 主屏 + 上方 1080p 100% 副屏）；其他布局、旋转屏和热插拔未验收。不承诺 HDR 色彩管理、受保护视频、UAC 安全桌面或远程会话断开后的截图。
 - Linux 托盘依赖 StatusNotifier/AppIndicator 宿主；没有宿主时仍可后台运行，可从启动器或 `freepinpaste --settings` 打开设置。Windows 使用系统通知区域，并在 Explorer 重启后重新注册图标。
 - 暂无滚动长截图、窗口自动吸附、马赛克、贴图历史管理、标注对象二次选择编辑。这些不在本次首版工具清单内。
 - 保存格式固定为 PNG；文件名严格使用系统保存对话框确认的路径，不偷偷修改扩展名。

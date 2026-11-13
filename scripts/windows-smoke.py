@@ -316,6 +316,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--inventory', action='store_true')
     parser.add_argument('--hotkey-test-only', action='store_true')
+    parser.add_argument('--multimon', action='store_true', help='Physical-pixel and cross-DPI desktop tests')
     parser.add_argument('--exe', type=Path, default=ROOT / 'target' / 'debug' / 'freepinpaste.exe')
     args = parser.parse_args()
     (OUT / 'failure.txt').unlink(missing_ok=True)
@@ -334,13 +335,22 @@ def main():
         config = Path(os.environ['APPDATA']) / 'freepinpaste' / 'config.toml'
         original = config.read_bytes() if config.exists() else None
         text = original.decode('utf-8') if original else ''
-        for name, value in [('capture_shortcut', 'Ctrl+Shift+F8'), ('pin_shortcut', 'Ctrl+Shift+F9')]:
+        overrides = [('capture_shortcut', 'Ctrl+Shift+F8'), ('pin_shortcut', 'Ctrl+Shift+F9'),
+                     ('pin_close_action', 'right_click' if args.multimon else 'double_click')]
+        for name, value in overrides:
             text = re.sub(rf'^{name}\s*=.*\n?', '', text, flags=re.M)
             text += f'\n{name} = "{value}"\n'
         config.parent.mkdir(parents=True, exist_ok=True)
         try:
             config.write_text(text, encoding='utf-8')
-            result['checks'] = smoke(args.exe)
+            if args.multimon:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location('multimon', Path(__file__).with_name('windows-multimon.py'))
+                multimon = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(multimon)
+                result['checks'] = multimon.run(args.exe)
+            else:
+                result['checks'] = smoke(args.exe)
         finally:
             if original is None:
                 config.unlink(missing_ok=True)

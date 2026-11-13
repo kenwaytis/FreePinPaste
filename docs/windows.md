@@ -2,7 +2,7 @@
 
 ## 范围与发布
 
-Windows x64 版共用 Linux 版的 GPUI 编辑器、标注、历史、PNG 导出及离线 OCR，不是第二套 GUI。目标为 **Windows 10 22H2 x64（Build 19045）**，运行需要可用的 Direct3D 11 图形驱动。
+Windows x64 版共用 Linux 版的 GPUI 编辑器、标注、历史、PNG 导出及离线 OCR，不是第二套 GUI。支持 **Windows 10 22H2 x64（Build 19045）及 Windows 11 x64**，已实测 Windows 11 Build 26300；运行需要可用的 Direct3D 11 图形驱动。
 
 发行包：
 
@@ -46,11 +46,14 @@ Windows 不使用 Portal，不出现 GNOME 的授权截图、系统改键界面�
 
 编辑器覆盖完整物理桌面，将截图映射到实际客户区；选区、标注和导出始终使用原图像素。工具栏、提示和贴图落点使用显示器物理边界换算，贴图原始尺寸按物理像素计算。截图窗口和贴图窗口绕过 GPUI 0.2.2 在 Windows 10 上保留的非客户区内缩，避免约 8 px 边框造成截图错位；贴图移动使用原生系统移动循环。
 
-**已验收环境只有单屏 1920×1080 / 100%。** 多屏、负坐标与混合 DPI 的坐标实现和关键数学测试已加入，但本机没有第二块活动显示器，经用户确认暂不标记多屏实机验收通过。后续需覆盖：
+**已验收 Windows 10 单屏 1920×1080 / 100%，以及 Windows 11 双屏混合 DPI：**
 
-- 主屏 100% + 副屏 150% / 200%；副屏放在主屏左侧、上方；
-- 各屏截图及跨屏框选，导出尺寸和像素对齐；
-- 贴图跨屏移动、缩放、原始尺寸恢复，工具栏不落入屏幕空隙。
+- 主屏 3840×2160 / 175%，原点 `(0, 0)`；上方副屏 1920×1080 / 100%，原点 `(983, -1080)`。虚拟桌面为 3840×3240，存在负纵坐标和屏幕空隙。连接但未参与桌面的电视不计为活动屏，也未为测试启用。
+- 各屏普通截图、反向快速框选、边缘选区、双向跨屏框选：导出尺寸准确，并与桌面参考图逐像素一致。
+- 两屏边缘工具栏完整位于活动屏内，实际点击复制通过；贴图跨屏往返保持源像素尺寸、置顶及鼠标拖动锚点，滚轮缩放和双击恢复原始尺寸通过。
+- 分数 DPI 输入坐标按源像素对齐；无边框图像使用 popup 窗口，避免系统最小尺寸限制；通过 `WM_GETDPISCALEDSIZE` 告知原生移动循环保持物理大小。
+
+此结果不代表所有显示配置均已验证：副屏在左侧（负横坐标）、150% / 200% 组合、三块及更多活动屏仍需实机补验。
 
 截图为 **SDR** 路径，不提供 HDR 色彩管理。不捕获 UAC 安全桌面或绕过受保护内容限制；锁屏、远程会话断开、屏幕热插拔期间的行为未验收。
 
@@ -112,6 +115,16 @@ cargo test --test windows_system -- --ignored --nocapture
 # 自动安装、验证安装版和免安装版、卸载；拒绝覆盖已有的非测试安装
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows-package.ps1
 ```
+
+多屏专项使用 `scripts/windows-multimon.py`，经同一入口在真实桌面运行；不改变显示布局或缩放：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-desktop.ps1 -Arguments '--multimon --exe "C:\path\freepinpaste.exe"'
+# 可显式传入隔离的便携 Python，不要求全局安装或修改 PATH
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows-package.ps1 -Python 'C:\test-tools\pythonw.exe' -MultiMonitor
+```
+
+专项脚本在各屏显示临时生成的测试图案，检查截图像素、工具栏完整性及贴图跨 DPI 移动；当前要求至少两块相邻活动屏。`-MultiMonitor` 使安装版与 ZIP 版各执行基础及多屏检查；结果分别保存为 `installed-multimon-result.json`、`portable-multimon-result.json`。没有覆盖的布局应记录为未验证，不能仅凭显示器枚举数量判定通过。
 
 验证器创建当前用户的临时、非提权交互式计划任务，结束时删除任务。它会替换测试剪贴板、移动鼠标、输入按键、保存桌面截图，并临时修改本应用快捷键配置后恢复。不要在用户正在工作时运行。结果保存在 `.cache/windows-validation/`，不提交桌面截图或其他个人数据。
 

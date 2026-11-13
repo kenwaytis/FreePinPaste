@@ -1,13 +1,17 @@
 param(
     [string]$Script = "$PSScriptRoot\windows-smoke.py",
     [string]$Arguments = '--inventory',
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 180,
+    [string]$Python = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
 $name = 'FreePinPaste-Validation-' + [guid]::NewGuid().ToString('N')
-$python = Join-Path (Split-Path (Get-Command python.exe -ErrorAction Stop).Source) 'pythonw.exe'
-$action = New-ScheduledTaskAction -Execute $python -Argument "-u `"$Script`" $Arguments" -WorkingDirectory $root
+if (!$Python) {
+    $Python = Join-Path (Split-Path (Get-Command python.exe -ErrorAction Stop).Source) 'pythonw.exe'
+}
+if (!(Test-Path $Python)) { throw "Python executable not found: $Python" }
+$action = New-ScheduledTaskAction -Execute $Python -Argument "-u `"$Script`" $Arguments" -WorkingDirectory $root
 $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds ($TimeoutSeconds + 30)) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 try {

@@ -10,6 +10,11 @@ impl Point {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
+    /// Snap pointer input to source pixels. Fractional DPI conversions can turn
+    /// an integer edge into 1883.0001; floor/ceil cropping would add a pixel.
+    pub fn from_viewport(x: f32, y: f32, scale: (f32, f32)) -> Self {
+        Self::new((x / scale.0).round(), (y / scale.1).round())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -224,6 +229,19 @@ mod tests {
             .pixel_bounds(90, 70),
             None
         );
+    }
+    #[test]
+    fn fractional_dpi_selection_has_exact_pixel_edges() {
+        // Real 175% / 100% desktop: 3840x3240, origin (0, -1080).
+        let dpi = 1.75;
+        let scale = ((3840. / dpi) / 3840., (3240. / dpi) / 3240.);
+        let a = Point::from_viewport(1883. / dpi, 2147. / dpi, scale);
+        let b = Point::from_viewport(1710. / dpi, 2050. / dpi, scale);
+        assert_eq!(
+            Rect::between(a, b).pixel_bounds(3840, 3240),
+            Some((1710, 2050, 173, 97))
+        );
+        assert_eq!(Rect::between(a, b), Rect::between(b, a));
     }
     #[test]
     fn redo_branch_is_discarded() {
