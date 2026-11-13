@@ -1,0 +1,42 @@
+[package]
+name = "freepinpaste"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "A native GPUI screenshot editor for GNOME Wayland, with offline OCR"
+license = "Apache-2.0"
+default-run = "freepinpaste"
+
+[dependencies]
+anyhow = "1"
+async-channel = "2.5"
+# Match GPUI's oo7 dependency; mixing ashpd async-std and tokio features is invalid.
+ashpd = { version = "=0.12.3", default-features = false, features = ["async-std"] }
+chrono = "0.4"
+directories = "6"
+futures-util = "0.3"
+gpui = { version = "=0.2.2", default-features = false, features = ["x11"] }
+gpui-component = { version = "=0.5.1", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+resvg = "0.45"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tiny-skia = "0.11"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
+toml = "0.8"
+x11rb = { version = "0.13", features = ["randr", "xinerama"] }
+x11-clipboard = "0.9.3"
+
+# GPUI -> zed-async-tar still uses xattr 0.2.3, whose Linux ENOATTR alias
+# was removed by libc. This patch uses the actual Linux errno, ENODATA.
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 8

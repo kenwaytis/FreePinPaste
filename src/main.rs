@@ -1,0 +1,105 @@
+use anyhow::{Context, Result, bail};
+use freepinpaste::{
+    config::Config,
+    service::{Command, Event},
+    ui,
+};
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("FreePinPaste: {error:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
+    let mut args = std::env::args().skip(1);
+    let mut command = Command::Settings;
+    let mut background = false;
+    let mut no_shortcuts = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--help" | "-h" => {
+                println!(
+                    "FreePinPaste 0.1.0\n\n  --capture       通过 Portal 截图（默认 F1）\n  --pin           置顶选区 / 剪贴板图片 / 最近截图（默认 F3）\n  --settings      打开设置\n  --background    后台常驻\n  --quit          退出已有实例\n  --edit FILE     在编辑器中打开本地图片\n  --ocr FILE      使用内置 CPU OCR 输出文本\n  --languages     列出随包 OCR 模型\n  --no-shortcuts  本次启动不申请全局快捷键（调试用）\n"
+                );
+                return Ok(());
+            }
+            "--version" => {
+                println!("FreePinPaste {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "--install-desktop" => {
+                freepinpaste::config::install_desktop_entry()?;
+                return Ok(());
+            }
+            "--capture" => command = Command::Capture,
+            "--pin" => command = Command::Pin,
+            "--settings" => command = Command::Settings,
+            "--quit" => command = Command::Quit,
+            "--background" => {
+                background = true;
+                command = Command::Background;
+            }
+            "--no-shortcuts" => no_shortcuts = true,
+            "--edit" => {
+                command = Command::Edit(std::fs::canonicalize(
+                    args.next().context("--edit 需要文件路径")?,
+                )?)
+            }
+            "--ocr" => {
+                let path = args.next().context("--ocr 需要文件路径")?;
+                let image = image::open(path)?.to_rgba8();
+                println!(
+                    "{}",
+                    freepinpaste::ocr::Ocr::discover()?
+                        .recognize(&image, &Config::load()?.ocr_languages)?
+                );
+                return Ok(());
+            }
+            "--languages" => {
+                println!(
+                    "{}",
+                    freepinpaste::ocr::Ocr::discover()?.languages()?.join("\n")
+                );
+                return Ok(());
+            }
+            _ => bail!("未知参数 {arg}；使用 --help 查看帮助"),
+        }
+    }
+    // GPUI components enable GPUI's Wayland feature transitively. Select X11 before
+    // starting any threads; the desktop itself remains GNOME Wayland.
+    // SAFETY: this is the single-threaded startup path, before GPUI/Tokio/X11 init.
+    unsafe {
+        std::env::remove_var("WAYLAND_DISPLAY");
+    }
+    let config = Config::load()?;
+    let (events, receiver) = async_channel::unbounded::<Event>();
+    let Some(instance) = freepinpaste::service::claim(&command, events.clone())? else {
+        return Ok(());
+    };
+    if matches!(command, Command::Quit) {
+        return Ok(());
+    }
+    freepinpaste::config::ensure_desktop_entry()?;
+    if no_shortcuts {
+        let _ = events.try_send(Event::Status("调试模式：本次未注册全局快捷键".into()));
+    }
+    let (portal_tx, portal_rx) = async_channel::unbounded();
+    freepinpaste::portal::start(config.clone(), portal_rx, events.clone(), !no_shortcuts);
+    gpui::Application::new().run(move |cx| {
+        if let Err(e) = ui::init(
+            cx,
+            config,
+            events,
+            portal_tx,
+            receiver,
+            if background { None } else { Some(command) },
+        ) {
+            eprintln!("FreePinPaste: {e:#}");
+            cx.quit();
+        }
+    });
+    drop(instance);
+    Ok(())
+}
