@@ -102,6 +102,8 @@ GNOME 51 不允许后台应用弹出首次截图授权对话框。不能一开�
 | 保存 | Ctrl+S / 保存按钮 |
 | 复制 | Enter / Ctrl+C / 复制按钮；选区模式双击也可复制 |
 | 退出截屏 | Esc / ×；右键先返回选区工具，再右键退出 |
+| 关闭贴图 | 默认双击左键；可在设置的「贴图 → 关闭方式」改为右键关闭；Esc 始终可关闭 |
+| 移动 / 缩放贴图 | 左键拖动 / 滚轮；选择右键关闭时，双击左键恢复原始尺寸 |
 
 图片复制由独立 X11 selection owner 提供 `image/png`，应用在后台存活时持续服务剪贴板。已经验证通过 Mutter 桥接到原生 Wayland 应用。不能直接依赖 GPUI 0.2.2 的 `write_to_clipboard(Image)`：该版本 X11 实现实际只写文本。
 
@@ -157,6 +159,8 @@ cargo run -- --no-shortcuts --edit /absolute/path/to/image.png
 ```
 
 `--edit` 会把本地图片放入全屏编辑器；用于排查编辑器问题，与真实 Portal 截图无关。`--install-desktop` 可显式把桌面入口更新为当前可执行文件路径。
+
+贴图关闭方式保存后立即对已打开和新建贴图生效。配置项 `pin_close_action` 可选 `"double_click"`（默认）或 `"right_click"`；旧配置未包含该项时也默认双击关闭。
 
 配置文件：`~/.config/freepinpaste/config.toml`。开机自启动入口：`~/.config/autostart/io.github.freepinpaste.FreePinPaste.desktop`。也遵循 `XDG_CONFIG_HOME` / `XDG_DATA_HOME`。
 

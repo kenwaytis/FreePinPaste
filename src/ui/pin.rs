@@ -1,4 +1,5 @@
 use super::{State, render_image};
+use crate::config::PinCloseAction;
 use anyhow::Result;
 use gpui::{prelude::*, *};
 use image::RgbaImage;
@@ -68,7 +69,7 @@ pub fn open(image: Arc<RgbaImage>, position: Option<(f32, f32)>, cx: &mut App) -
     handle.update(cx, |_, window, cx| -> Result<()> {
         let xid = cx.global::<State>().x11.bind_window(
             window,
-            "FreePinPaste · 贴图（拖动移动 / 滚轮缩放 / 右键关闭）",
+            "FreePinPaste · 贴图（拖动移动 / 滚轮缩放 / Esc 关闭）",
         )?;
         cx.global::<State>().x11.borderless(xid)?;
         cx.global::<State>().x11.above(xid, true)?;
@@ -95,6 +96,12 @@ impl Render for Pin {
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     if event.click_count == 2 {
+                        if cx.global::<State>().config.pin_close_action
+                            == PinCloseAction::DoubleClick
+                        {
+                            window.remove_window();
+                            return;
+                        }
                         this.zoom = 1.;
                         window.resize(size(
                             px(this.image.width() as f32),
@@ -108,7 +115,11 @@ impl Render for Pin {
             )
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(|_, _, window, _| window.remove_window()),
+                cx.listener(|_, _, window, cx| {
+                    if cx.global::<State>().config.pin_close_action == PinCloseAction::RightClick {
+                        window.remove_window();
+                    }
+                }),
             )
             .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
                 let delta = event.delta.pixel_delta(px(20.));

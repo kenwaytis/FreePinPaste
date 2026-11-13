@@ -3,11 +3,20 @@ use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PinCloseAction {
+    #[default]
+    DoubleClick,
+    RightClick,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub capture_shortcut: String,
     pub pin_shortcut: String,
+    pub pin_close_action: PinCloseAction,
     pub ocr_languages: String,
     pub font_family: String,
     pub save_directory: PathBuf,
@@ -18,6 +27,7 @@ impl Default for Config {
         Self {
             capture_shortcut: "F1".into(),
             pin_shortcut: "F3".into(),
+            pin_close_action: PinCloseAction::default(),
             ocr_languages: "chi_sim+eng".into(),
             font_family: "sans-serif".into(),
             save_directory: BaseDirs::new().unwrap().home_dir().join("Pictures"),
@@ -161,12 +171,36 @@ mod tests {
         let c: Config = toml::from_str("").unwrap();
         assert_eq!(c.capture_shortcut, "F1");
         assert_eq!(c.pin_shortcut, "F3");
+        assert_eq!(c.pin_close_action, PinCloseAction::DoubleClick);
         assert_eq!(
             toml::from_str::<Config>(&toml::to_string(&c).unwrap())
                 .unwrap()
                 .ocr_languages,
             "chi_sim+eng"
         );
+    }
+    #[test]
+    fn pin_close_action_defaults_for_old_configs_and_roundtrips() {
+        let old: Config = toml::from_str("capture_shortcut = 'F2'\npin_shortcut = 'F4'").unwrap();
+        assert_eq!(old.capture_shortcut, "F2");
+        assert_eq!(old.pin_shortcut, "F4");
+        assert_eq!(old.pin_close_action, PinCloseAction::DoubleClick);
+
+        for (action, value) in [
+            (PinCloseAction::DoubleClick, "double_click"),
+            (PinCloseAction::RightClick, "right_click"),
+        ] {
+            let config = Config {
+                pin_close_action: action,
+                ..Config::default()
+            };
+            let text = toml::to_string(&config).unwrap();
+            assert!(text.contains(&format!("pin_close_action = \"{value}\"")));
+            assert_eq!(
+                toml::from_str::<Config>(&text).unwrap().pin_close_action,
+                action
+            );
+        }
     }
     #[test]
     fn autostart_enable_disable_and_atomic_write() {

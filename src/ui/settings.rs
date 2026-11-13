@@ -1,11 +1,15 @@
 use super::{State, button};
-use crate::{config, service::Command};
+use crate::{
+    config::{self, PinCloseAction},
+    service::Command,
+};
 use gpui::{prelude::*, *};
 use gpui_component::input::{Input, InputState};
 
 pub struct Settings {
     capture: Entity<InputState>,
     pin: Entity<InputState>,
+    pin_close_action: PinCloseAction,
     languages: Entity<InputState>,
     font: Entity<InputState>,
     save_dir: Entity<InputState>,
@@ -30,6 +34,7 @@ impl Settings {
         Self {
             capture,
             pin,
+            pin_close_action: c.pin_close_action,
             languages,
             font,
             save_dir,
@@ -42,6 +47,7 @@ impl Settings {
         let config = config::Config {
             capture_shortcut: self.capture.read(cx).value().trim().to_string(),
             pin_shortcut: self.pin.read(cx).value().trim().to_string(),
+            pin_close_action: self.pin_close_action,
             ocr_languages: self.languages.read(cx).value().trim().to_string(),
             font_family: self.font.read(cx).value().to_string(),
             save_directory: self.save_dir.read(cx).value().as_ref().into(),
@@ -158,6 +164,45 @@ impl Render for Settings {
                             .portal
                             .try_send(crate::portal::Request::ConfigureShortcuts);
                     })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .p_4()
+                    .bg(white())
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(rgb(0xe3e9ef))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("贴图"))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(div().w(px(110.)).text_size(px(13.)).child("关闭方式"))
+                            .children([
+                                ("pin-close-double-click", "双击左键关闭（默认）", PinCloseAction::DoubleClick),
+                                ("pin-close-right-click", "右键关闭", PinCloseAction::RightClick),
+                            ].into_iter().map(|(id, label, action)| {
+                                button(id, label)
+                                    .when(self.pin_close_action == action, |button| {
+                                        button.bg(rgb(0x168be5)).text_color(white())
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.pin_close_action = action;
+                                        cx.notify();
+                                    }))
+                            })),
+                    )
+                    .child(div().text_size(px(12.)).text_color(rgb(0x748494)).child(
+                        if self.pin_close_action == PinCloseAction::DoubleClick {
+                            "双击左键关闭贴图，右键不关闭；仍可拖动移动、滚轮缩放、Esc 关闭。保存后立即生效。"
+                        } else {
+                            "右键关闭贴图，双击左键恢复原始尺寸；仍可拖动移动、滚轮缩放、Esc 关闭。保存后立即生效。"
+                        },
+                    )),
             )
             .child(
                 div()
