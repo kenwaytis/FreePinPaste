@@ -10,10 +10,12 @@ use std::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Command {
     Capture,
+    CaptureCopy,
     AuthorizeCapture,
     Pin,
     Settings,
     Background,
+    Restart,
     Quit,
     Edit(PathBuf),
 }

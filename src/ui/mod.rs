@@ -14,7 +14,17 @@ use async_channel::{Receiver, Sender};
 use gpui::{prelude::*, *};
 use gpui_component::{Root, Theme, ThemeMode};
 use image::RgbaImage;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum CaptureMode {
+    #[default]
+    Edit,
+    Copy,
+}
 
 pub struct State {
     pub config: Config,
@@ -27,7 +37,9 @@ pub struct State {
     pub capturing: bool,
     pub capture_authorized: bool,
     capture_permission_known: bool,
-    capture_pending: bool,
+    capture_pending: Option<CaptureMode>,
+    capture_mode: CaptureMode,
+    restart: Arc<AtomicBool>,
     pub x11: X11,
     pub image_clipboard: crate::clipboard::ImageClipboard,
 }
@@ -40,6 +52,7 @@ pub fn init(
     portal: Sender<portal::Request>,
     receiver: Receiver<Event>,
     initial: Option<Command>,
+    restart: Arc<AtomicBool>,
 ) -> Result<()> {
     gpui_component::init(cx);
     Theme::change(ThemeMode::Light, None, cx);
@@ -54,7 +67,9 @@ pub fn init(
         capturing: false,
         capture_authorized: false,
         capture_permission_known: false,
-        capture_pending: false,
+        capture_pending: None,
+        capture_mode: CaptureMode::Edit,
+        restart,
         x11: X11::connect()?,
         image_clipboard: crate::clipboard::ImageClipboard::new()?,
     });
@@ -105,9 +120,9 @@ pub fn init(
                             let state = cx.global_mut::<State>();
                             state.capture_authorized = allowed;
                             state.capture_permission_known = true;
-                            let pending = std::mem::take(&mut state.capture_pending);
-                            if pending {
-                                dispatch(Command::Capture, cx)
+                            let pending = state.capture_pending.take();
+                            if let Some(mode) = pending {
+                                request_capture(mode, cx)
                             } else {
                                 if let Some(window) = cx.global::<State>().settings {
                                     let _ = window.update(cx, |_, w, _| w.refresh());
@@ -120,7 +135,12 @@ pub fn init(
                             match result {
                                 Ok(()) => {
                                     cx.global_mut::<State>().capture_authorized = true;
-                                    dispatch(Command::Capture, cx)
+                                    let mode = cx
+                                        .global_mut::<State>()
+                                        .capture_pending
+                                        .take()
+                                        .unwrap_or_default();
+                                    request_capture(mode, cx)
                                 }
                                 Err(e) => {
                                     status(
@@ -134,9 +154,14 @@ pub fn init(
                         Event::Captured(result) => {
                             cx.global_mut::<State>().capturing = false;
                             match result {
-                                Ok(image) => open_editor(image, cx),
+                                Ok(image) => {
+                                    let mode = cx.global::<State>().capture_mode;
+                                    open_editor(image, mode, cx)
+                                }
                                 Err(e) => {
-                                    cx.global_mut::<State>().capture_authorized = false;
+                                    let state = cx.global_mut::<State>();
+                                    state.capture_pending = Some(state.capture_mode);
+                                    state.capture_authorized = false;
                                     status(format!("截图未完成：{e}；请在前台重新授权截图。"), cx);
                                     open_settings(cx)
                                 }
@@ -187,6 +212,10 @@ pub fn send(command: Command, cx: &App) {
 pub fn dispatch(command: Command, cx: &mut App) -> Result<()> {
     match command {
         Command::Quit => cx.quit(),
+        Command::Restart => {
+            cx.global::<State>().restart.store(true, Ordering::SeqCst);
+            cx.quit();
+        }
         Command::Background => {}
         Command::Settings => open_settings(cx)?,
         Command::AuthorizeCapture => {
@@ -207,36 +236,8 @@ pub fn dispatch(command: Command, cx: &mut App) -> Result<()> {
                 Ok(())
             })??;
         }
-        Command::Capture => {
-            if !cx.global::<State>().capture_permission_known {
-                cx.global_mut::<State>().capture_pending = true;
-                return Ok(());
-            }
-            if !cx.global::<State>().capture_authorized {
-                open_settings(cx)?;
-                status(
-                    "首次使用需要截图授权：请点击右上角「授权截图」，在 GNOME 弹窗中允许。".into(),
-                    cx,
-                );
-                return Ok(());
-            }
-            if let Some((window, _)) = cx.global::<State>().editor.clone() {
-                if window.update(cx, |_, w, _| w.activate_window()).is_ok() {
-                    return Ok(());
-                }
-                cx.global_mut::<State>().editor = None;
-            }
-            if cx.global::<State>().capturing {
-                return Ok(());
-            }
-            if let Some(window) = cx.global_mut::<State>().settings.take() {
-                let _ = window.update(cx, |_, w, _| w.remove_window());
-            }
-            cx.global_mut::<State>().capturing = true;
-            cx.global::<State>()
-                .portal
-                .try_send(portal::Request::Capture)?;
-        }
+        Command::Capture => request_capture(CaptureMode::Edit, cx)?,
+        Command::CaptureCopy => request_capture(CaptureMode::Copy, cx)?,
         Command::Pin => {
             if let Some((handle, entity)) = cx.global::<State>().editor.clone() {
                 if handle
@@ -266,13 +267,54 @@ pub fn dispatch(command: Command, cx: &mut App) -> Result<()> {
             pin::open(image, None, cx)?;
         }
         Command::Edit(path) => {
-            open_editor(image::open(path)?.to_rgba8(), cx)?;
+            open_editor(image::open(path)?.to_rgba8(), CaptureMode::Edit, cx)?;
         }
     }
     Ok(())
 }
 
-fn open_editor(image: RgbaImage, cx: &mut App) -> Result<()> {
+fn request_capture(mode: CaptureMode, cx: &mut App) -> Result<()> {
+    if cx.global::<State>().capturing {
+        return Ok(());
+    }
+    if !cx.global::<State>().capture_permission_known {
+        cx.global_mut::<State>().capture_pending = Some(mode);
+        return Ok(());
+    }
+    if !cx.global::<State>().capture_authorized {
+        cx.global_mut::<State>().capture_pending = Some(mode);
+        open_settings(cx)?;
+        status(
+            "首次使用需要截图授权：请点击右上角「授权截图」，在 GNOME 弹窗中允许。".into(),
+            cx,
+        );
+        return Ok(());
+    }
+    cx.global_mut::<State>().capture_pending = None;
+    if let Some((window, entity)) = cx.global::<State>().editor.clone() {
+        if entity.read(cx).capture_mode == mode {
+            if window.update(cx, |_, w, _| w.activate_window()).is_ok() {
+                return Ok(());
+            }
+        } else {
+            // Switching between editing and quick copy starts a fresh capture.
+            let _ = window.update(cx, |_, w, _| w.remove_window());
+        }
+        cx.global_mut::<State>().editor = None;
+    }
+    if let Some(window) = cx.global_mut::<State>().settings.take() {
+        let _ = window.update(cx, |_, w, _| w.remove_window());
+    }
+    cx.global::<State>()
+        .portal
+        .try_send(portal::Request::Capture)?;
+    let state = cx.global_mut::<State>();
+    state.capture_mode = mode;
+    state.capturing = true;
+    Ok(())
+}
+
+fn open_editor(image: RgbaImage, mode: CaptureMode, cx: &mut App) -> Result<()> {
     if let Some((window, _)) = cx.global_mut::<State>().editor.take() {
         let _ = window.update(cx, |_, w, _| w.remove_window());
     }
@@ -291,7 +333,7 @@ fn open_editor(image: RgbaImage, cx: &mut App) -> Result<()> {
             ..Default::default()
         },
         |window, cx| {
-            let view = cx.new(|cx| editor::Editor::new(image, window, cx));
+            let view = cx.new(|cx| editor::Editor::new(image, mode, window, cx));
             editor = Some(view.clone());
             cx.new(|cx| Root::new(view, window, cx))
         },

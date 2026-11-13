@@ -1,6 +1,6 @@
 mod toolbar;
 
-use super::State;
+use super::{CaptureMode, State};
 use crate::{
     document::{Annotation, Document, Point as P, Rect, Style, Tool},
     raster,
@@ -39,6 +39,7 @@ enum Action {
 
 pub struct Editor {
     pub(super) xid: Option<u32>,
+    pub(super) capture_mode: CaptureMode,
     document: Document,
     preview: Arc<RenderImage>,
     focus: FocusHandle,
@@ -54,7 +55,12 @@ pub struct Editor {
     busy: bool,
 }
 impl Editor {
-    pub fn new(image: RgbaImage, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(
+        image: RgbaImage,
+        capture_mode: CaptureMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let preview = super::render_image(&image);
         let focus = cx.focus_handle();
         focus.focus(window);
@@ -65,6 +71,7 @@ impl Editor {
         };
         Self {
             xid: None,
+            capture_mode,
             document: Document::new(image),
             preview,
             focus,
@@ -76,7 +83,11 @@ impl Editor {
             panel: None,
             text,
             text_anchor: P::default(),
-            message: "拖动框选 · Esc 退出 · 选区内双击复制 · 空格切换选区移动".into(),
+            message: match capture_mode {
+                CaptureMode::Edit => "拖动框选 · Esc 退出 · 选区内双击复制 · 空格切换选区移动",
+                CaptureMode::Copy => "拖动框选 · 松开鼠标自动复制 · Esc / 右键取消",
+            }
+            .into(),
             busy: false,
         }
     }
@@ -196,9 +207,12 @@ impl Editor {
         }
         cx.notify();
     }
-    fn mouse_up(&mut self, _: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.drag.take().is_none() {
+    fn mouse_up(&mut self, event: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.take() else {
             return;
+        };
+        if let Drag::Select(start) = drag {
+            self.document.selection = Some(Rect::between(start, self.source_point(event.position)));
         }
         if let Some(draft) = self.draft.take() {
             self.document.push(draft);
@@ -208,6 +222,10 @@ impl Editor {
             && (rect.w < 2. || rect.h < 2.)
         {
             self.document.selection = None;
+        }
+        if self.capture_mode == CaptureMode::Copy && self.document.selection.is_some() {
+            self.perform(Action::Copy, window, cx);
+            return;
         }
         cx.notify();
     }
@@ -388,6 +406,20 @@ impl Editor {
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let m = event.keystroke.modifiers;
+        if self.capture_mode == CaptureMode::Copy {
+            match key {
+                "escape" => self.close(window, cx),
+                "enter" if self.document.selection.is_some() => {
+                    self.perform(Action::Copy, window, cx)
+                }
+                "c" if m.control && self.document.selection.is_some() => {
+                    self.perform(Action::Copy, window, cx);
+                }
+                _ => return,
+            }
+            cx.stop_propagation();
+            return;
+        }
         if self.panel.is_some() {
             if key == "escape" {
                 if self.busy {
@@ -539,7 +571,11 @@ impl Render for Editor {
                         source.h.ceil() as u32
                     )),
             );
-            if self.drag.is_none() && source.w >= 2. && source.h >= 2. {
+            if self.capture_mode == CaptureMode::Edit
+                && self.drag.is_none()
+                && source.w >= 2.
+                && source.h >= 2.
+            {
                 let monitor = cx
                     .displays()
                     .into_iter()

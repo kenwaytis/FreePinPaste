@@ -20,6 +20,7 @@ Model hashes are in `packaging/models.sha256`. Tesseract, Leptonica and tessdata
 - GPUI 0.2.2: Apache-2.0 — https://github.com/zed-industries/zed
 - GPUI Component 0.5.1: Apache-2.0 — https://github.com/longbridge/gpui-component
 - ashpd 0.12.3: MIT — https://github.com/bilelmoussaoui/ashpd
+- ksni 0.3.7: Unlicense — https://github.com/iovxw/ksni
 - tiny-skia / resvg: see Cargo license inventory — https://github.com/linebender/resvg
 - x11-clipboard 0.9.3: MIT — https://github.com/quininer/x11-clipboard
 

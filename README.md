@@ -1,6 +1,6 @@
 # FreePinPaste
 
-面向当前 **Linux x86_64 / GNOME Wayland** 桌面的截图、标注和贴图工具。GUI 使用 **Rust + GPUI**；不需要 GNOME 扩展，不需要切换到 Xorg，也不使用 Qt。
+面向当前 **Linux x86_64 / GNOME Wayland** 桌面的截图、标注和贴图工具。GUI 使用 **Rust + GPUI**；截图功能不依赖 GNOME 扩展，不需要切换到 Xorg，也不使用 Qt。托盘显示需要桌面提供 StatusNotifier/AppIndicator 宿主（GNOME 通常由托盘扩展提供）。
 
 这是第一版可运行实现，覆盖本次需求列出的工具，不宣称已经实现 Snipaste / 微信的全部功能。
 
@@ -17,11 +17,13 @@
 - 随包离线 CPU OCR：**Tesseract 5.5.0 + Leptonica 1.85.0 + tessdata_fast**，不调用云端，不需要 Python 或系统 Tesseract。
 - 用户级开机自启动（实际为**登录图形桌面后启动**），默认关闭，在设置中启用。
 - 单实例和本地命令转发；关闭设置或截图后后台继续运行。
+- 系统托盘：截屏、截屏并自动复制、设置、重新启动、退出；快速模式框选松手即复制。
+- 统一的「截图框＋图钉」应用 LOGO 和单色托盘图标，图标内嵌于程序并自动安装到用户图标目录。
 
 ### 当前边界
 
 - 只针对当前 GNOME Wayland + XWayland 环境；尚未验收混合 DPI、旋转屏幕或其他桌面环境。
-- 暂无托盘图标；可从应用启动器重新打开 FreePinPaste 设置，或运行 `freepinpaste --settings`。
+- 托盘依赖 StatusNotifier/AppIndicator 宿主；没有宿主时程序仍可后台运行，可从应用启动器或 `freepinpaste --settings` 打开设置。宿主稍后启动时托盘会自动注册。
 - 暂无滚动长截图、窗口自动吸附、马赛克、贴图历史管理、标注对象二次选择编辑。这些不在本次首版工具清单内。
 - 保存格式固定为 PNG；文件名严格使用系统保存对话框确认的路径，不偷偷修改扩展名。
 - OCR 的 10 种语言可组合选择，不等于自动语言检测。低清晰度、手写、复杂排版不在首版识别质量承诺内。
@@ -64,6 +66,22 @@ dist/FreePinPaste-linux-x86_64/
 4. 以后 F1 直接截图。已有授权从 Portal PermissionStore **只读查询**，程序不修改或伪造权限。
 
 GNOME 51 不允许后台应用弹出首次截图授权对话框。不能一开始就隐藏窗口，否则 Portal 返回 `Other`，系统日志为 `Only the focused app is allowed to show a system access dialog`。本项目已为此实现专门的授权流程。
+
+### 托盘
+
+托盘以菜单操作为主，不绑定单击截屏；实际鼠标手势由桌面宿主决定。菜单按以下顺序排列：
+
+| 菜单 | 行为 |
+|---|---|
+| 截屏 | 普通框选、标注流程，与 F1 相同 |
+| 截屏并自动复制 | 拖动框选，松开鼠标后立即复制选区并关闭；不显示标注工具栏；Esc / 右键取消；小于 2×2 像素的选区不复制 |
+| 设置 | 打开或激活现有设置窗口 |
+| 重新启动 | 不弹确认；关闭截图与所有贴图后后台重启，不打开设置；保留已保存的配置，不恢复未保存的编辑、贴图或最近截图 |
+| 退出 | 结束整个程序，包括所有窗口和托盘 |
+
+首次截屏仍需在设置窗口中授权；从自动复制入口发起时，授权后继续自动复制模式。截图请求处理中不会重复发起；已有同模式编辑窗口时激活该窗口，切换普通 / 自动复制模式则关闭当前编辑并重新截屏。
+
+复制后的图片由后台进程提供；重启或退出会结束当前剪贴板服务，是否保留图片取决于桌面剪贴板管理器。重新启动使用当前可执行文件，不是自动更新或重新构建程序。
 
 ### 操作
 
@@ -127,6 +145,8 @@ cargo run --locked -- --settings
 
 ```bash
 cargo run -- --capture
+cargo run -- --capture-copy
+cargo run -- --restart
 cargo run -- --pin
 cargo run -- --settings
 cargo run -- --background
@@ -165,7 +185,8 @@ cargo run --example clipboard_probe -- /path/to/image.png
 
 ```text
 src/
-├── main.rs, service.rs       # 启动、单实例 Unix socket
+├── main.rs, service.rs       # 启动、后台重启、单实例 Unix socket
+├── tray.rs, branding.rs      # StatusNotifier 托盘、内嵌 LOGO 和图标安装
 ├── portal.rs                # 应用身份、首次授权、截图、快捷键、文件对话框
 ├── platform.rs              # 本进程 X11 窗口、三屏全屏和置顶
 ├── clipboard.rs             # 真实 image/png selection owner
@@ -184,5 +205,6 @@ GPUI 0.2.2 的兼容处理：X11 `HasWindowHandle` 未实现，因此使用本�
 - [GlobalShortcuts Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
 - [Host Registry](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.host.portal.Registry.html)
 - [EWMH 窗口状态和全屏多屏协议](https://specifications.freedesktop.org/wm-spec/latest/)
+- [ksni / StatusNotifier 托盘](https://docs.rs/ksni/0.3.7/ksni/)
 - [GPUI 0.2.2](https://docs.rs/gpui/0.2.2/gpui/)
 - [Tesseract](https://github.com/tesseract-ocr/tesseract) / [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)

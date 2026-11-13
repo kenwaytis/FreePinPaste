@@ -13,7 +13,7 @@
 | 项目 | 方法 / 结果 |
 |---|---|
 | Rust 类型检查、编译 | `cargo check`、debug/release 构建，`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过 |
-| 核心单元测试 | 9 项：选区归一化/边界、工具栏避让、历史分支、橡皮擦还原、PNG 往返、配置、启动项及 OCR 语言校验 |
+| 核心单元测试 | 11 项：选区归一化/边界、工具栏避让、历史分支、橡皮擦还原、PNG 往返、配置、启动项及 OCR 语言校验，以及托盘菜单顺序/命令序列化和内嵌图标安装 |
 | 内置 OCR | 实际编译 CPU Tesseract 5.5.0 / Leptonica 1.85.0，不依赖系统 Tesseract；10 个模型 SHA-256 校验通过 |
 | 中英混合 OCR | `cargo test --test ocr_smoke -- --ignored --nocapture`，实际得到 `FreePinPaste 2026` 和 `快捷截图 文字识别` |
 | F1 / F3 默认绑定 | Portal 返回实际绑定“截图：按 F1 · 置顶：按 F3”，应用监听激活与修改事件 |
@@ -27,6 +27,17 @@
 | 后台窗口 | release 对应代码实测：启动后 keeper 从 `_NET_CLIENT_LIST` 消失，IPC `--quit` 能正常结束进程；设置窗口关闭后进程仍由 keeper 保活 |
 | 发行包 | 约 31 MB tar.gz，SHA-256 校验通过；内置 Tesseract/Leptonica/精简 TIFF 静态链接，`ldd` 确认不再依赖系统 libtiff 或其可选编解码器 |
 | 安装与搬移 | 临时 HOME 中执行安装脚本，安装后的二进制独立完成中英 OCR；随后经用户确认安装到 `~/.local/share/freepinpaste/app`，release 已运行，日志确认 F1 / F3 绑定，自启动保持关闭 |
+
+## 托盘与 LOGO 增量验证
+
+- `cargo build --locked`、`cargo fmt --check`、`cargo clippy --all-targets --locked -- -D warnings`、`cargo test --locked` 通过（11 个单元测试；OCR smoke 保持显式忽略，本轮未重跑 OCR）。
+- 在独立 D-Bus 会话与临时 XDG 目录下启动真实 debug 二进制，通过 `org.kde.StatusNotifierItem` / `com.canonical.dbusmenu` 检查五项菜单、`ItemIsMenu=true`、symbolic 图标名称及 ARGB fallback。
+- 从 D-Bus 菜单触发重启：同 PID 的进程被 `exec` 替换，D-Bus connection owner 与 Unix socket 更新；启动参数为 `--background --no-shortcuts`，未自动打开设置。
+- 单实例 `--restart` 命令转发成功；菜单退出后进程返回 0，控制 socket 删除。
+- 当前真实 GNOME `StatusNotifierWatcher` 接收到临时测试实例的注册，退出后移除。未替换用户正在运行的旧版实例，临时测试未注册快捷键或修改用户配置。
+- 当前没有托盘宿主的隔离会话中，托盘服务保持可用且程序不退出；尚未模拟宿主退出后重新上线。
+- 透明 LOGO 和单色 SVG 已检查浅色/深色背景、16/22/32 像素预览；图标安装测试检查透明 PNG、SVG 内容和重复安装。
+- 本轮未重建 release 发行包；图标直接编译进二进制，现有安装脚本的 `--install-desktop` 会安装图标。
 
 ## 本轮发现并解决的问题
 
@@ -45,6 +56,13 @@
 - OCR 按钮的结果编辑流程可按下面清单手动补验；后端真实 OCR 已单独运行验证。
 
 ## 后续手动回归清单
+
+- [ ] 实际 GNOME 面板中的托盘外观、展开菜单和打开设置。
+- [ ] 「截屏并自动复制」框选松手后编辑窗口关闭，可在原生 Wayland 应用中粘贴正确选区；测试反向 / 跨屏框选。
+- [ ] 快速模式 Esc / 右键取消不修改剪贴板；单击或过小选区不复制；普通 F1 的标注流程保持不变。
+- [ ] 无截图权限时从快速复制入口授权，授权后仍为松手自动复制模式。
+- [ ] 托盘重启关闭已有截图 / 贴图，保留配置并恢复全局快捷键；重启或退出不承诺保留剪贴板内容。
+- [ ] 桌面托盘宿主禁用再启用后，应用重新出现在面板中。
 
 - [ ] 用系统改键把 F1 改成其他键，确认设置页实际绑定更新，旧键不再触发。
 - [ ] 两个显示器之间跨屏框选，选区靠近屏幕底部/右侧，检查工具栏不越界。

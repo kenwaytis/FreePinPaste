@@ -82,12 +82,13 @@ pub fn desktop_entry(executable: &Path, background: bool) -> Result<String> {
         .replace('$', "\\$")
         .replace('%', "%%");
     Ok(format!(
-        "[Desktop Entry]\nType=Application\nVersion=1.0\nName=FreePinPaste\nComment=截图、标注、贴图与离线 OCR\nExec=\"{escaped}\" {}\nIcon=camera-photo\nTerminal=false\nCategories=Graphics;Utility;\nStartupWMClass={}\nX-GNOME-Autostart-enabled=true\n",
+        "[Desktop Entry]\nType=Application\nVersion=1.0\nName=FreePinPaste\nComment=截图、标注、贴图与离线 OCR\nExec=\"{escaped}\" {}\nIcon={}\nTerminal=false\nCategories=Graphics;Utility;\nStartupWMClass={}\nX-GNOME-Autostart-enabled=true\n",
         if background {
             "--background"
         } else {
             "--settings"
         },
+        crate::APP_ID,
         crate::APP_ID
     ))
 }
@@ -125,14 +126,27 @@ fn desktop_path() -> PathBuf {
 }
 
 pub fn ensure_desktop_entry() -> Result<()> {
-    if desktop_path().exists() {
-        Ok(())
-    } else {
-        install_desktop_entry()
+    crate::branding::install()?;
+    let path = desktop_path();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            // Upgrade the old stock icon without changing the installed Exec path.
+            let updated = text.replace(
+                "\nIcon=camera-photo\n",
+                &format!("\nIcon={}\n", crate::APP_ID),
+            );
+            if updated != text {
+                atomic_write(&path, updated.as_bytes())?;
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => install_desktop_entry(),
+        Err(e) => Err(e.into()),
     }
 }
 
 pub fn install_desktop_entry() -> Result<()> {
+    crate::branding::install()?;
     atomic_write(
         &desktop_path(),
         desktop_entry(&std::env::current_exe()?, false)?.as_bytes(),
@@ -162,6 +176,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("--background"));
         assert!(text.contains("X-GNOME-Autostart-enabled=true"));
+        assert!(text.contains(&format!("Icon={}\n", crate::APP_ID)));
         write_autostart(&path, Path::new("/opt/FreePinPaste/freepinpaste"), false).unwrap();
         assert!(!path.exists());
         write_autostart(&path, Path::new("/opt/FreePinPaste/freepinpaste"), false).unwrap();
