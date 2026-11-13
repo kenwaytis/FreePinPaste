@@ -14,6 +14,7 @@ pub struct Settings {
     font: Entity<InputState>,
     save_dir: Entity<InputState>,
     autostart: bool,
+    saving: bool,
     message: String,
     models: String,
 }
@@ -38,12 +39,16 @@ impl Settings {
             languages,
             font,
             save_dir,
-            autostart: config::autostart_path().exists(),
+            autostart: config::autostart_enabled(),
+            saving: false,
             message: String::new(),
             models,
         }
     }
     fn save(&mut self, cx: &mut Context<Self>) {
+        if self.saving {
+            return;
+        }
         let config = config::Config {
             capture_shortcut: self.capture.read(cx).value().trim().to_string(),
             pin_shortcut: self.pin.read(cx).value().trim().to_string(),
@@ -52,18 +57,64 @@ impl Settings {
             font_family: self.font.read(cx).value().to_string(),
             save_directory: self.save_dir.read(cx).value().as_ref().into(),
         };
-        match config
-            .save()
-            .and_then(|_| config::set_autostart(self.autostart))
+        if let Err(e) = config.validate() {
+            self.message = format!("保存失败：{e:#}");
+            cx.notify();
+            return;
+        }
+        #[cfg(target_os = "linux")]
         {
-            Ok(()) => {
-                cx.global_mut::<State>().config = config;
-                self.message =
-                    "已保存。默认快捷键供首次绑定使用；已有绑定请点击「系统改键」。".into();
+            self.message = match self.persist(&config, cx) {
+                Ok(()) => "已保存。默认快捷键供首次绑定使用；已有绑定请点击「系统改键」。".into(),
+                Err(e) => format!("保存失败：{e:#}"),
+            };
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let desktop = cx.global::<State>().desktop.clone();
+            let previous = cx.global::<State>().config.clone();
+            let previous_autostart = config::autostart_enabled();
+            let (tx, rx) = async_channel::bounded(1);
+            if let Err(e) =
+                desktop.try_send(crate::desktop::Request::UpdateShortcuts(config.clone(), tx))
+            {
+                self.message = format!("保存失败：{e}");
+                cx.notify();
+                return;
             }
-            Err(e) => self.message = format!("保存失败：{e:#}"),
+            self.saving = true;
+            cx.spawn(async move |this, cx| {
+                let result = rx.recv().await.unwrap_or_else(|e| Err(e.to_string()));
+                let _ = this.update(cx, |this, cx| {
+                    this.saving = false;
+                    this.message = match result {
+                        Err(e) => format!("未保存：{e}"),
+                        Ok(()) => match this.persist(&config, cx) {
+                            Ok(()) => "已保存，快捷键已生效。".into(),
+                            Err(e) => {
+                                let (tx, _) = async_channel::bounded(1);
+                                let _ = desktop.try_send(crate::desktop::Request::UpdateShortcuts(
+                                    previous.clone(),
+                                    tx,
+                                ));
+                                let _ = previous.save();
+                                let _ = config::set_autostart(previous_autostart);
+                                format!("保存失败：{e:#}")
+                            }
+                        },
+                    };
+                    cx.notify();
+                });
+            })
+            .detach();
         }
         cx.notify();
+    }
+    fn persist(&mut self, config: &config::Config, cx: &mut Context<Self>) -> anyhow::Result<()> {
+        config.save()?;
+        config::set_autostart(self.autostart)?;
+        cx.global_mut::<State>().config = config.clone();
+        Ok(())
     }
 }
 fn field(label: &'static str, input: &Entity<InputState>) -> impl IntoElement {
@@ -158,12 +209,15 @@ impl Render for Settings {
                     .child(div().text_size(px(12.)).text_color(rgb(0x748494)).child(
                         "F3：编辑中置顶选区；其他时候置顶剪贴板图片，没有图片时使用最近截图。",
                     ))
-                    .child(button("configure", "系统改键…").on_click(|_, _, cx| {
+                    .when(cfg!(target_os = "linux"), |d| d.child(button("configure", "系统改键…").on_click(|_, _, cx| {
                         let _ = cx
                             .global::<State>()
-                            .portal
-                            .try_send(crate::portal::Request::ConfigureShortcuts);
-                    })),
+                            .desktop
+                            .try_send(crate::desktop::Request::ConfigureShortcuts);
+                    })))
+                    .when(cfg!(target_os = "windows"), |d| d.child(div().text_size(px(12.)).child(
+                        "支持 F1–F24、字母、数字及 Ctrl+Shift+Alt+Win 组合，例如 Ctrl+Shift+A。保存后生效。"
+                    ))),
             )
             .child(
                 div()
@@ -250,7 +304,7 @@ impl Render for Settings {
                     .flex()
                     .gap_2()
                     .child(
-                        button("save-settings", "保存设置")
+                        button("save-settings", if self.saving { "正在保存…" } else { "保存设置" })
                             .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
                     )
                     .child(button("background", "隐藏到后台").on_click(|_, w, _| w.remove_window()))
@@ -267,7 +321,9 @@ impl Render for Settings {
                     .text_size(px(11.))
                     .text_color(rgb(0x8b98a5))
                     .child(format!(
-                        "GNOME Wayland / Screenshot Portal / GPUI XWayland\n{}",
+                        "{}\n{}",
+                        if cfg!(target_os = "windows") { "Windows / 原生桌面服务 / GPUI DirectX" }
+                        else { "GNOME Wayland / Screenshot Portal / GPUI XWayland" },
                         config::config_path().display()
                     )),
             )

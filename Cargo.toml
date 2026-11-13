@@ -3,23 +3,19 @@ name = "freepinpaste"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
-description = "A native GPUI screenshot editor for GNOME Wayland, with offline OCR"
+description = "A native GPUI screenshot editor for Linux and Windows, with offline OCR"
 license = "Apache-2.0"
 default-run = "freepinpaste"
 
 [dependencies]
 anyhow = "1"
 async-channel = "2.5"
-# Match GPUI's oo7 dependency; mixing ashpd async-std and tokio features is invalid.
-ashpd = { version = "=0.12.3", default-features = false, features = ["async-std"] }
 chrono = "0.4"
 directories = "6"
 futures-util = "0.3"
-gpui = { version = "=0.2.2", default-features = false, features = ["x11"] }
+gpui = { version = "=0.2.2", default-features = false }
 gpui-component = { version = "=0.5.1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-# Match ashpd/GPUI's zbus async-io backend rather than enabling zbus/tokio.
-ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
 resvg = "0.45"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,8 +23,31 @@ tempfile = "3"
 tiny-skia = "0.11"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
 toml = "0.8"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Match GPUI's oo7 / ashpd async-io backend.
+ashpd = { version = "=0.12.3", default-features = false, features = ["async-std"] }
+gpui = { version = "=0.2.2", default-features = false, features = ["x11"] }
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
 x11rb = { version = "0.13", features = ["randr", "xinerama"] }
 x11-clipboard = "0.9.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"] }
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }
+raw-window-handle = { version = "0.6", features = ["std"] }
+windows = { version = "0.61", features = [
+  "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Security_Authorization",
+  "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory",
+  "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_Threading",
+  "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging",
+  "Win32_Storage_FileSystem",
+] }
+windows-registry = "0.5"
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+embed-resource = "3"
 
 # GPUI -> zed-async-tar still uses xattr 0.2.3, whose Linux ENOATTR alias
 # was removed by libc. This patch uses the actual Linux errno, ENODATA.

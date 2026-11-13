@@ -1,3 +1,4 @@
+use super::Request;
 use crate::{
     config::Config,
     service::{Command, Event},
@@ -12,19 +13,14 @@ use futures_util::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Clone, Debug)]
-pub enum Request {
-    Capture,
-    AuthorizeCapture(u32),
-    ConfigureShortcuts,
-}
+pub struct Service;
 
 pub fn start(
     config: Config,
     requests: Receiver<Request>,
     events: Sender<Event>,
     enable_shortcuts: bool,
-) {
+) -> Service {
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -96,6 +92,7 @@ pub fn start(
             tokio::join!(hotkeys, captures);
         });
     });
+    Service
 }
 
 // Read the GNOME portal's own decision; never manufacture or write a grant.

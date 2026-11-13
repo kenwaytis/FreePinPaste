@@ -8,8 +8,9 @@ import sys
 
 out = pathlib.Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
+target = sys.argv[2] if len(sys.argv) > 2 else 'x86_64-unknown-linux-gnu'
 metadata = json.loads(subprocess.check_output([
-    "cargo", "metadata", "--locked", "--format-version=1", "--filter-platform=x86_64-unknown-linux-gnu"
+    "cargo", "metadata", "--locked", "--format-version=1", f"--filter-platform={target}"
 ]))
 inventory = []
 for package in metadata["packages"]:
@@ -23,4 +24,4 @@ for package in metadata["packages"]:
         for source in candidates:
             shutil.copy2(source, target / source.name)
     inventory.append({k: package.get(k) for k in ("name", "version", "license", "license_file", "repository", "source")})
-(out / "cargo-dependencies.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2))
+(out / "cargo-dependencies.json").write_text(json.dumps(inventory, ensure_ascii=False, indent=2), encoding='utf-8')

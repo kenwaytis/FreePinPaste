@@ -29,6 +29,7 @@ fn install_into(root: &Path) -> Result<()> {
         if std::fs::read(&path).ok().as_deref() != Some(bytes) {
             crate::config::atomic_write(&path, bytes)?;
             // Icon theme caches use the theme directory mtime for invalidation.
+            #[cfg(target_os = "linux")]
             std::fs::File::open(root)?.set_modified(std::time::SystemTime::now())?;
         }
     }

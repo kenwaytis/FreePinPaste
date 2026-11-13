@@ -53,7 +53,7 @@ impl Config {
             Err(e) => Err(e.into()),
         }
     }
-    pub fn save(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         if self.capture_shortcut.trim().is_empty() || self.pin_shortcut.trim().is_empty() {
             bail!("快捷键不能为空");
         }
@@ -64,6 +64,12 @@ impl Config {
             bail!("截图和置顶快捷键不能相同");
         }
         crate::ocr::validate_languages(&self.ocr_languages)?;
+        #[cfg(target_os = "windows")]
+        crate::desktop::validate_shortcuts(self)?;
+        Ok(())
+    }
+    pub fn save(&self) -> Result<()> {
+        self.validate()?;
         atomic_write(&config_path(), toml::to_string_pretty(self)?.as_bytes())
     }
 }
@@ -79,6 +85,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub fn desktop_entry(executable: &Path, background: bool) -> Result<String> {
     let executable = executable.to_str().context("可执行文件路径不是 UTF-8")?;
     if executable.contains(['\n', '\r']) {
@@ -103,6 +110,7 @@ pub fn desktop_entry(executable: &Path, background: bool) -> Result<String> {
     ))
 }
 
+#[cfg(target_os = "linux")]
 pub fn autostart_path() -> PathBuf {
     BaseDirs::new()
         .unwrap()
@@ -111,10 +119,12 @@ pub fn autostart_path() -> PathBuf {
         .join(format!("{}.desktop", crate::APP_ID))
 }
 
+#[cfg(target_os = "linux")]
 pub fn set_autostart(enabled: bool) -> Result<()> {
     write_autostart(&autostart_path(), &std::env::current_exe()?, enabled)
 }
 
+#[cfg(target_os = "linux")]
 fn write_autostart(path: &Path, executable: &Path, enabled: bool) -> Result<()> {
     if enabled {
         atomic_write(path, desktop_entry(executable, true)?.as_bytes())
@@ -127,6 +137,7 @@ fn write_autostart(path: &Path, executable: &Path, enabled: bool) -> Result<()> 
     }
 }
 
+#[cfg(target_os = "linux")]
 fn desktop_path() -> PathBuf {
     BaseDirs::new()
         .unwrap()
@@ -135,6 +146,7 @@ fn desktop_path() -> PathBuf {
         .join(format!("{}.desktop", crate::APP_ID))
 }
 
+#[cfg(target_os = "linux")]
 pub fn ensure_desktop_entry() -> Result<()> {
     crate::branding::install()?;
     let path = desktop_path();
@@ -155,12 +167,41 @@ pub fn ensure_desktop_entry() -> Result<()> {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub fn install_desktop_entry() -> Result<()> {
     crate::branding::install()?;
     atomic_write(
         &desktop_path(),
         desktop_entry(&std::env::current_exe()?, false)?.as_bytes(),
     )
+}
+
+pub fn autostart_enabled() -> bool {
+    #[cfg(target_os = "linux")]
+    return autostart_path().exists();
+    #[cfg(target_os = "windows")]
+    return windows_registry::CURRENT_USER
+        .open(RUN_KEY)
+        .and_then(|key| key.get_string("FreePinPaste"))
+        .is_ok();
+}
+
+#[cfg(target_os = "windows")]
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+#[cfg(target_os = "windows")]
+pub fn set_autostart(enabled: bool) -> Result<()> {
+    let key = windows_registry::CURRENT_USER.create(RUN_KEY)?;
+    if enabled {
+        let exe = std::env::current_exe()?;
+        key.set_string(
+            "FreePinPaste",
+            format!("\"{}\" --background", exe.display()),
+        )?;
+    } else if key.get_string("FreePinPaste").is_ok() {
+        key.remove_value("FreePinPaste")?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -203,6 +244,15 @@ mod tests {
         }
     }
     #[test]
+    fn atomic_write_replaces_existing_unicode_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("中文目录/config.toml");
+        atomic_write(&path, b"first").unwrap();
+        atomic_write(&path, b"second").unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"second");
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
     fn autostart_enable_disable_and_atomic_write() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("autostart/app.desktop");
@@ -216,6 +266,7 @@ mod tests {
         write_autostart(&path, Path::new("/opt/FreePinPaste/freepinpaste"), false).unwrap();
     }
     #[test]
+    #[cfg(target_os = "linux")]
     fn desktop_exec_is_not_a_shell_command() {
         let text = desktop_entry(Path::new("/tmp/a b/$x%foo"), true).unwrap();
         assert!(text.contains("Exec=\"/tmp/a b/\\$x%%foo\" --background"));

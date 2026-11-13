@@ -39,7 +39,9 @@ enum Action {
 }
 
 pub struct Editor {
-    pub(super) xid: Option<u32>,
+    pub(super) native_window: Option<crate::platform::WindowId>,
+    desktop: crate::platform::Desktop,
+    monitors: Vec<crate::platform::Desktop>,
     pub(super) capture_mode: CaptureMode,
     document: Document,
     preview: Arc<RenderImage>,
@@ -59,6 +61,7 @@ impl Editor {
     pub(super) fn new(
         image: RgbaImage,
         capture_mode: CaptureMode,
+        desktop: crate::platform::Desktop,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -71,7 +74,13 @@ impl Editor {
             ..Default::default()
         };
         Self {
-            xid: None,
+            native_window: None,
+            desktop,
+            monitors: cx
+                .global::<State>()
+                .platform
+                .monitors()
+                .unwrap_or_else(|_| vec![desktop]),
             capture_mode,
             document: Document::new(image),
             preview,
@@ -142,6 +151,9 @@ impl Editor {
                             input.set_value("", window, cx);
                             input.focus(window, cx);
                         });
+                        // Do not let the canvas's automatic mouse focus overwrite
+                        // the new input focus later in this same bubbling event.
+                        window.prevent_default();
                     }
                     tool => {
                         let mut style = self.style.clone();
@@ -303,7 +315,12 @@ impl Editor {
                             },
                             Action::Pin => {
                                 let r = self.screen_rect(self.document.selection.unwrap());
-                                match super::pin::open(image, Some((r.x, r.y)), cx) {
+                                let viewport = window.viewport_size();
+                                let position = self.desktop.screen_point(
+                                    (r.x, r.y),
+                                    (viewport.width.into(), viewport.height.into()),
+                                );
+                                match super::pin::open(image, Some(position), cx) {
                                     Ok(()) => self.close(window, cx),
                                     Err(e) => self.message = e.to_string(),
                                 }
@@ -321,10 +338,10 @@ impl Editor {
     }
     fn save(&mut self, image: Arc<RgbaImage>, window: &mut Window, cx: &mut Context<Self>) {
         let directory = cx.global::<State>().config.save_directory.clone();
-        let xid = self.xid;
+        let native_window = self.native_window;
         // The fullscreen editor must not cover the system save dialog.
-        if let Some(id) = xid {
-            let _ = cx.global::<State>().x11.show(id, false);
+        if let Some(id) = native_window {
+            let _ = cx.global::<State>().platform.show(id, false);
         }
         self.busy = true;
         let (tx, rx) = async_channel::bounded(1);
@@ -335,7 +352,7 @@ impl Editor {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()?
-                    .block_on(crate::portal::save_file(bytes, directory))
+                    .block_on(crate::desktop::save_file(bytes, directory))
             })()
             .map_err(|e| format!("{e:#}"));
             let _ = tx.send_blocking(result);
@@ -344,8 +361,8 @@ impl Editor {
             if let Ok(result) = rx.recv().await {
                 let _ = this.update_in(cx, |this, window, cx| {
                     this.busy = false;
-                    if let Some(id) = xid {
-                        let _ = cx.global::<State>().x11.show(id, true);
+                    if let Some(id) = native_window {
+                        let _ = cx.global::<State>().platform.show(id, true);
                         window.activate_window();
                     }
                     match result {
@@ -472,6 +489,16 @@ impl Render for Editor {
             width / self.document.source.width() as f32,
             height / self.document.source.height() as f32,
         );
+        let monitors: Vec<Rect> = self
+            .monitors
+            .iter()
+            .map(|m| Rect {
+                x: (m.x - self.desktop.x) as f32 * width / self.desktop.width as f32,
+                y: (m.y - self.desktop.y) as f32 * height / self.desktop.height as f32,
+                w: m.width as f32 * width / self.desktop.width as f32,
+                h: m.height as f32 * height / self.desktop.height as f32,
+            })
+            .collect();
         let selected = self.document.selection.map(|r| self.screen_rect(r));
         let mut toolbar = None;
         let mut root = div()
@@ -499,6 +526,18 @@ impl Render for Editor {
                     }
                 }),
             )
+            .capture_action(cx.listener(
+                |this, action: &gpui_component::input::Enter, window, cx| {
+                    // Input consumes the bound key before raw key listeners run.
+                    // Intercept its confirm action before it inserts a newline.
+                    if this.panel == Some(Panel::Text) && action.secondary {
+                        this.commit_text(window, cx);
+                        cx.stop_propagation();
+                    } else {
+                        cx.propagate();
+                    }
+                },
+            ))
             .on_key_down(cx.listener(Self::key))
             .child(
                 img(self.preview.clone())
@@ -583,18 +622,10 @@ impl Render for Editor {
                 && source.w >= 2.
                 && source.h >= 2.
             {
-                let monitor = cx
-                    .displays()
-                    .into_iter()
-                    .map(|d| d.bounds())
-                    .find(|b| b.contains(&point(px(r.right() - 1.), px(r.bottom() - 1.))));
-                let screen = monitor
-                    .map(|b| Rect {
-                        x: f32::from(b.origin.x),
-                        y: f32::from(b.origin.y),
-                        w: f32::from(b.size.width),
-                        h: f32::from(b.size.height),
-                    })
+                let screen = monitors
+                    .iter()
+                    .copied()
+                    .find(|b| b.contains(P::new(r.right() - 1., r.bottom() - 1.)))
                     .unwrap_or(Rect {
                         x: 0.,
                         y: 0.,
@@ -613,21 +644,19 @@ impl Render for Editor {
             root = root.child(div().absolute().inset_0().bg(rgba(0x07121f65)));
         }
         // Position the hint on the monitor containing the cursor, not in the 3-screen gap.
-        let pointer = cx.global::<State>().x11.pointer().unwrap_or((0, 0));
-        let active = cx
-            .displays()
-            .into_iter()
-            .find(|d| {
-                d.bounds()
-                    .contains(&point(px(pointer.0 as f32), px(pointer.1 as f32)))
-            })
-            .map(|d| d.bounds());
-        let hint_x = active.map(|b| f32::from(b.origin.x) + 20.).unwrap_or(20.);
+        let pointer = cx.global::<State>().platform.pointer().unwrap_or((0, 0));
+        let pointer = P::new(
+            (pointer.0 - self.desktop.x) as f32 * width / self.desktop.width as f32,
+            (pointer.1 - self.desktop.y) as f32 * height / self.desktop.height as f32,
+        );
+        let active = monitors.iter().find(|b| b.contains(pointer));
+        let hint_x = active.map(|b| b.x + 20.).unwrap_or(20.);
+        let hint_y = active.map(|b| b.y + 16.).unwrap_or(16.);
         root = root.child(
             div()
                 .absolute()
                 .left(px(hint_x))
-                .top(px(16.))
+                .top(px(hint_y))
                 .max_w(px(1000.))
                 .px_3()
                 .py_2()

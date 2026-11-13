@@ -1,5 +1,12 @@
 use anyhow::{Context, Result, bail};
 use image::RgbaImage;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const ENGINE: &str = "bin/tesseract.exe";
+#[cfg(not(target_os = "windows"))]
+const ENGINE: &str = "bin/tesseract";
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
@@ -20,8 +27,8 @@ impl Ocr {
         candidates.push(exe.parent().unwrap().join("ocr"));
         candidates.push(exe.parent().unwrap().join("../share/freepinpaste/ocr"));
         candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtime/ocr"));
-        let directory = candidates.into_iter().find(|p| p.join("bin/tesseract").is_file())
-            .context("未找到随包 OCR 引擎。开发环境请先运行 scripts/build-ocr.sh；发行包应包含 ocr/bin/tesseract")?;
+        let directory = candidates.into_iter().find(|p| p.join(ENGINE).is_file())
+            .context("未找到随包 OCR 引擎。请运行当前平台的 scripts/build-ocr 脚本；发行包应包含 ocr/bin/tesseract[.exe]")?;
         Ok(Self { directory })
     }
     pub fn languages(&self) -> Result<Vec<String>> {
@@ -60,7 +67,10 @@ impl Ocr {
         }
         let output_base = temp.path().join("result");
         let stderr = std::fs::File::create(temp.path().join("stderr"))?;
-        let mut child = Command::new(self.directory.join("bin/tesseract"))
+        let mut command = Command::new(self.directory.join(ENGINE));
+        #[cfg(target_os = "windows")]
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let mut child = command
             .arg(input)
             .arg(&output_base)
             .args(["--tessdata-dir"])

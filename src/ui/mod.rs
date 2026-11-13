@@ -5,8 +5,8 @@ mod settings;
 
 use crate::{
     config::Config,
-    platform::X11,
-    portal,
+    desktop,
+    platform::Platform,
     service::{Command, Event},
 };
 use anyhow::{Context as _, Result};
@@ -29,7 +29,7 @@ pub(super) enum CaptureMode {
 pub struct State {
     pub config: Config,
     pub events: Sender<Event>,
-    pub portal: Sender<portal::Request>,
+    pub desktop: Sender<desktop::Request>,
     pub status: String,
     pub editor: Option<(WindowHandle<Root>, Entity<editor::Editor>)>,
     pub settings: Option<WindowHandle<Root>>,
@@ -40,7 +40,7 @@ pub struct State {
     capture_pending: Option<CaptureMode>,
     capture_mode: CaptureMode,
     restart: Arc<AtomicBool>,
-    pub x11: X11,
+    pub platform: Platform,
     pub image_clipboard: crate::clipboard::ImageClipboard,
 }
 impl Global for State {}
@@ -49,7 +49,7 @@ pub fn init(
     cx: &mut App,
     config: Config,
     events: Sender<Event>,
-    portal: Sender<portal::Request>,
+    desktop: Sender<desktop::Request>,
     receiver: Receiver<Event>,
     initial: Option<Command>,
     restart: Arc<AtomicBool>,
@@ -59,8 +59,8 @@ pub fn init(
     cx.set_global(State {
         config,
         events,
-        portal,
-        status: "等待系统确认快捷键…".into(),
+        desktop,
+        status: "正在注册全局快捷键…".into(),
         editor: None,
         settings: None,
         last_image: None,
@@ -70,7 +70,7 @@ pub fn init(
         capture_pending: None,
         capture_mode: CaptureMode::Edit,
         restart,
-        x11: X11::connect()?,
+        platform: Platform::connect()?,
         image_clipboard: crate::clipboard::ImageClipboard::new()?,
     });
     // GPUI 0.2.2 stops its X11 loop when the last window is destroyed. Keep an
@@ -89,20 +89,21 @@ pub fn init(
     )?;
     // This GPUI release maps X11 windows even when show=false.
     keeper.update(cx, |_, window, cx| -> Result<()> {
-        let x11 = &cx.global::<State>().x11;
-        let xid = x11.bind_window(window, "FreePinPaste · 后台服务")?;
-        x11.hide_keeper(xid)
+        let platform = &cx.global::<State>().platform;
+        let id = platform.bind_window(window, "FreePinPaste · 后台服务")?;
+        platform.hide_keeper(id)
     })??;
     // Mutter may finish managing the first MapRequest after the initial hide.
     // Reapply after the first compositor frames; the empty keeper must not remain
     // focusable/visible in a background-only launch.
+    #[cfg(target_os = "linux")]
     cx.spawn(async move |cx| {
         Timer::after(std::time::Duration::from_millis(250)).await;
         let _ = keeper.update(cx, |_, window, cx| -> Result<()> {
-            let x11 = &cx.global::<State>().x11;
-            let xid = x11.bind_window(window, "FreePinPaste · 后台服务")?;
-            x11.hide_keeper(xid)?;
-            x11.show(xid, false)
+            let platform = &cx.global::<State>().platform;
+            let id = platform.bind_window(window, "FreePinPaste · 后台服务")?;
+            platform.hide_keeper(id)?;
+            platform.show(id, false)
         });
     })
     .detach();
@@ -159,10 +160,13 @@ pub fn init(
                                     open_editor(image, mode, cx)
                                 }
                                 Err(e) => {
-                                    let state = cx.global_mut::<State>();
-                                    state.capture_pending = Some(state.capture_mode);
-                                    state.capture_authorized = false;
-                                    status(format!("截图未完成：{e}；请在前台重新授权截图。"), cx);
+                                    #[cfg(target_os = "linux")]
+                                    {
+                                        let state = cx.global_mut::<State>();
+                                        state.capture_pending = Some(state.capture_mode);
+                                        state.capture_authorized = false;
+                                    }
+                                    status(format!("截图未完成：{e}"), cx);
                                     open_settings(cx)
                                 }
                             }
@@ -225,13 +229,13 @@ pub fn dispatch(command: Command, cx: &mut App) -> Result<()> {
             open_settings(cx)?;
             let handle = cx.global::<State>().settings.unwrap();
             handle.update(cx, |_, window, cx| -> Result<()> {
-                let xid = cx
+                let id = cx
                     .global::<State>()
-                    .x11
+                    .platform
                     .bind_window(window, "FreePinPaste · 设置")?;
                 cx.global::<State>()
-                    .portal
-                    .try_send(portal::Request::AuthorizeCapture(xid))?;
+                    .desktop
+                    .try_send(desktop::Request::AuthorizeCapture(id))?;
                 cx.global_mut::<State>().capturing = true;
                 Ok(())
             })??;
@@ -250,6 +254,9 @@ pub fn dispatch(command: Command, cx: &mut App) -> Result<()> {
                 }
                 cx.global_mut::<State>().editor = None;
             }
+            #[cfg(target_os = "windows")]
+            let clipboard = cx.global::<State>().image_clipboard.read().map(Arc::new);
+            #[cfg(target_os = "linux")]
             let clipboard = cx.read_from_clipboard().and_then(|item| {
                 item.entries().iter().find_map(|entry| {
                     if let ClipboardEntry::Image(image) = entry {
@@ -303,11 +310,23 @@ fn request_capture(mode: CaptureMode, cx: &mut App) -> Result<()> {
         cx.global_mut::<State>().editor = None;
     }
     if let Some(window) = cx.global_mut::<State>().settings.take() {
-        let _ = window.update(cx, |_, w, _| w.remove_window());
+        let _ = window.update(cx, |_, w, cx| {
+            #[cfg(target_os = "windows")]
+            if let Ok(id) = cx
+                .global::<State>()
+                .platform
+                .bind_window(w, "FreePinPaste · 设置")
+            {
+                let _ = cx.global::<State>().platform.show(id, false);
+            }
+            #[cfg(target_os = "linux")]
+            let _ = cx;
+            w.remove_window();
+        });
     }
     cx.global::<State>()
-        .portal
-        .try_send(portal::Request::Capture)?;
+        .desktop
+        .try_send(desktop::Request::Capture)?;
     let state = cx.global_mut::<State>();
     state.capture_mode = mode;
     state.capturing = true;
@@ -318,9 +337,9 @@ fn open_editor(image: RgbaImage, mode: CaptureMode, cx: &mut App) -> Result<()> 
     if let Some((window, _)) = cx.global_mut::<State>().editor.take() {
         let _ = window.update(cx, |_, w, _| w.remove_window());
     }
-    let desktop = cx.global::<State>().x11.desktop()?;
+    let desktop = cx.global::<State>().platform.desktop()?;
     let bounds = Bounds::new(
-        point(px(0.), px(0.)),
+        point(px(desktop.x as f32), px(desktop.y as f32)),
         size(px(desktop.width as f32), px(desktop.height as f32)),
     );
     let mut editor = None;
@@ -333,17 +352,17 @@ fn open_editor(image: RgbaImage, mode: CaptureMode, cx: &mut App) -> Result<()> 
             ..Default::default()
         },
         |window, cx| {
-            let view = cx.new(|cx| editor::Editor::new(image, mode, window, cx));
+            let view = cx.new(|cx| editor::Editor::new(image, mode, desktop, window, cx));
             editor = Some(view.clone());
             cx.new(|cx| Root::new(view, window, cx))
         },
     )?;
     let editor = editor.unwrap();
     handle.update(cx, |_, window, cx| -> Result<()> {
-        let x11 = &cx.global::<State>().x11;
-        let xid = x11.bind_window(window, "FreePinPaste · 截图编辑")?;
-        x11.overlay(xid)?;
-        editor.update(cx, |editor, _| editor.xid = Some(xid));
+        let platform = &cx.global::<State>().platform;
+        let id = platform.bind_window(window, "FreePinPaste · 截图编辑")?;
+        platform.overlay(id)?;
+        editor.update(cx, |editor, _| editor.native_window = Some(id));
         Ok(())
     })??;
     cx.global_mut::<State>().editor = Some((handle, editor));
@@ -356,12 +375,20 @@ pub fn open_settings(cx: &mut App) -> Result<()> {
     {
         return Ok(());
     }
+    let dimensions = cx
+        .primary_display()
+        .map(|display| {
+            let available = display.bounds().size;
+            size(
+                px(660_f32.min((f32::from(available.width) - 64.).max(320.))),
+                px(900_f32.min((f32::from(available.height) - 100.).max(300.))),
+            )
+        })
+        .unwrap_or(size(px(660.), px(900.)));
     let handle = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(660.), px(900.)),
-                cx,
+                None, dimensions, cx,
             ))),
             app_id: Some(crate::APP_ID.into()),
             titlebar: Some(TitlebarOptions {
@@ -375,6 +402,12 @@ pub fn open_settings(cx: &mut App) -> Result<()> {
             cx.new(|cx| Root::new(view, window, cx))
         },
     )?;
+    #[cfg(target_os = "windows")]
+    handle.update(cx, |_, window, cx| {
+        cx.global::<State>()
+            .platform
+            .bind_window(window, "FreePinPaste · 设置")
+    })??;
     cx.global_mut::<State>().settings = Some(handle);
     Ok(())
 }

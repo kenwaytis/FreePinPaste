@@ -14,6 +14,20 @@ fn fonts() -> Arc<resvg::usvg::fontdb::Database> {
             let mut db = resvg::usvg::fontdb::Database::new();
             db.load_system_fonts();
             // Match the system's sans-serif choice, including CJK glyphs.
+            #[cfg(target_os = "windows")]
+            {
+                let has_yahei = db.faces().any(|face| {
+                    face.families
+                        .iter()
+                        .any(|(name, _)| name == "Microsoft YaHei")
+                });
+                db.set_sans_serif_family(if has_yahei {
+                    "Microsoft YaHei"
+                } else {
+                    "Segoe UI"
+                });
+            }
+            #[cfg(target_os = "linux")]
             if let Ok(output) = std::process::Command::new("fc-match")
                 .args(["sans-serif", "-f", "%{family}"])
                 .output()

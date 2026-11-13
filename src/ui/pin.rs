@@ -10,6 +10,7 @@ struct Pin {
     rendered: Arc<RenderImage>,
     focus: FocusHandle,
     zoom: f32,
+    scale_factor: f32,
     message: String,
 }
 
@@ -24,20 +25,18 @@ pub fn open(image: Arc<RgbaImage>, position: Option<(f32, f32)>, cx: &mut App) -
     let position = position
         .or_else(|| {
             cx.global::<State>()
-                .x11
+                .platform
                 .pointer()
                 .ok()
                 .map(|(x, y)| (x as f32, y as f32))
         })
         .unwrap_or((100., 100.));
-    let desktop = cx.global::<State>().x11.desktop()?;
-    let x = position.0.clamp(
-        0.,
-        (desktop.width as f32 - f32::from(dimensions.width)).max(0.),
-    );
-    let y = position.1.clamp(
-        0.,
-        (desktop.height as f32 - f32::from(dimensions.height)).max(0.),
+    let desktop = cx.global::<State>().platform.desktop()?;
+    let (x, y) = desktop.clamp_position(
+        position.0,
+        position.1,
+        dimensions.width.into(),
+        dimensions.height.into(),
     );
     let rendered = render_image(&image);
     let handle = cx.open_window(
@@ -61,25 +60,50 @@ pub fn open(image: Arc<RgbaImage>, position: Option<(f32, f32)>, cx: &mut App) -
                     rendered,
                     focus,
                     zoom,
+                    scale_factor: window.scale_factor(),
                     message: String::new(),
                 }
             })
         },
     )?;
-    handle.update(cx, |_, window, cx| -> Result<()> {
-        let xid = cx.global::<State>().x11.bind_window(
+    handle.update(cx, |pin, window, cx| -> Result<()> {
+        let id = cx.global::<State>().platform.bind_window(
             window,
             "FreePinPaste · 贴图（拖动移动 / 滚轮缩放 / Esc 关闭）",
         )?;
-        cx.global::<State>().x11.borderless(xid)?;
-        cx.global::<State>().x11.above(xid, true)?;
-        cx.global::<State>().x11.move_to(xid, x as i32, y as i32)?;
+        cx.global::<State>().platform.borderless(id)?;
+        cx.global::<State>().platform.above(id, true)?;
+        cx.global::<State>()
+            .platform
+            .move_to(id, x as i32, y as i32)?;
+        // zoom=1 means one source pixel per physical display pixel, at any DPI.
+        cx.global::<State>().platform.resize_physical(
+            window,
+            pin.image.width() as f32 * pin.zoom,
+            pin.image.height() as f32 * pin.zoom,
+        )?;
         Ok(())
     })??;
     Ok(())
 }
+impl Pin {
+    fn resize(&mut self, window: &mut Window, cx: &App) {
+        if let Err(error) = cx.global::<State>().platform.resize_physical(
+            window,
+            (self.image.width() as f32 * self.zoom).max(1.),
+            (self.image.height() as f32 * self.zoom).max(1.),
+        ) {
+            self.message = error.to_string();
+        }
+    }
+}
 impl Render for Pin {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let scale = window.scale_factor();
+        if self.scale_factor != scale {
+            self.scale_factor = scale;
+            self.resize(window, cx);
+        }
         div()
             .size_full()
             .relative()
@@ -103,13 +127,13 @@ impl Render for Pin {
                             return;
                         }
                         this.zoom = 1.;
-                        window.resize(size(
-                            px(this.image.width() as f32),
-                            px(this.image.height() as f32),
-                        ));
+                        this.resize(window, cx);
                         cx.notify();
                     } else {
-                        window.start_window_move();
+                        if let Err(error) = cx.global::<State>().platform.start_move(window) {
+                            this.message = error.to_string();
+                            cx.notify();
+                        }
                     }
                 }),
             )
@@ -125,10 +149,7 @@ impl Render for Pin {
                 let delta = event.delta.pixel_delta(px(20.));
                 this.zoom =
                     (this.zoom * if delta.y > px(0.) { 1.1 } else { 1. / 1.1 }).clamp(0.1, 4.);
-                window.resize(size(
-                    px((this.image.width() as f32 * this.zoom).max(24.)),
-                    px((this.image.height() as f32 * this.zoom).max(24.)),
-                ));
+                this.resize(window, cx);
                 cx.notify();
             }))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {

@@ -19,7 +19,9 @@ for r, g, b in (source_pixels[x, y] for y in range(source.height) for x in range
     cyan = g - r > (b - r) * 0.55
     pixels.append((0, 181, 220, alpha) if cyan else (0, 96, 220, alpha))
 logo.putdata(pixels)
-logo.resize((512, 512), Image.Resampling.LANCZOS).save(ASSETS / "logo.png")
+app_icon = logo.resize((512, 512), Image.Resampling.LANCZOS)
+app_icon.save(ASSETS / "logo.png")
+app_icon.save(ASSETS / "freepinpaste.ico", sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
 
 # Use less padding on the small tray icon than on the launcher icon.
 mask = logo.getchannel("A")
@@ -35,4 +37,4 @@ with tempfile.TemporaryDirectory() as temp:
         "potrace", str(bitmap), "--svg", "--flat", "--color", "#2e3436",
         "--output", str(ASSETS / "tray-symbolic.svg"),
     ], check=True)
-print("Prepared assets/logo.png and assets/tray-symbolic.svg")
+print("Prepared assets/logo.png, assets/freepinpaste.ico and assets/tray-symbolic.svg")
