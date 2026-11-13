@@ -1,3 +1,4 @@
+mod cursor;
 mod toolbar;
 
 use super::{CaptureMode, State};
@@ -122,11 +123,10 @@ impl Editor {
         self.focus.focus(window);
         let p = self.source_point(event.position);
         if let Some(rect) = self.document.selection {
-            for (index, handle) in rect.handles().iter().enumerate() {
-                if ((handle.x - p.x) * self.scale.0).hypot((handle.y - p.y) * self.scale.1) < 8. {
-                    self.drag = Some(Drag::Resize(rect, index));
-                    return;
-                }
+            if let Some(index) = cursor::resize_handle(rect, p, self.scale) {
+                self.drag = Some(Drag::Resize(rect, index));
+                cx.notify();
+                return;
             }
             if rect.contains(p) {
                 if event.click_count == 2 && self.tool == Tool::Select {
@@ -203,7 +203,8 @@ impl Editor {
                     draft.extend(p);
                 }
             }
-            None => return,
+            None if self.document.selection.is_none() => return,
+            None => {} // Hover also updates the tool cursor and its screen position.
         }
         cx.notify();
     }
@@ -472,11 +473,17 @@ impl Render for Editor {
             height / self.document.source.height() as f32,
         );
         let selected = self.document.selection.map(|r| self.screen_rect(r));
+        let mut toolbar = None;
         let mut root = div()
             .size_full()
             .relative()
             .overflow_hidden()
             .bg(black())
+            .cursor(if self.panel.is_some() || self.busy {
+                CursorStyle::Arrow
+            } else {
+                CursorStyle::Crosshair
+            })
             .track_focus(&self.focus)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_move(cx.listener(Self::mouse_move))
@@ -594,13 +601,13 @@ impl Render for Editor {
                         w: width,
                         h: height,
                     });
-                let toolbar = crate::document::toolbar_position(
+                let toolbar_position = crate::document::toolbar_position(
                     r,
                     screen,
                     if self.tool == Tool::Text { 600. } else { 518. },
                     if self.tool == Tool::Select { 48. } else { 100. },
                 );
-                root = root.child(self.toolbar(toolbar, cx));
+                toolbar = Some(self.toolbar(toolbar_position, cx).into_any_element());
             }
         } else {
             root = root.child(div().absolute().inset_0().bg(rgba(0x07121f65)));
@@ -630,6 +637,7 @@ impl Render for Editor {
                 .text_color(white())
                 .child(self.message.clone()),
         );
+        root = root.child(self.cursor_layer(window)).children(toolbar);
         if let Some(panel) = self.panel {
             root = root.child(self.panel_view(panel, window, cx));
         }

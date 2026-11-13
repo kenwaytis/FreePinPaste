@@ -139,6 +139,8 @@ impl Editor {
             )
         }
         let mut stack = div()
+            .occlude()
+            .cursor(CursorStyle::Arrow)
             .absolute()
             .left(px(p.x))
             .top(px(p.y))
@@ -351,6 +353,8 @@ impl Editor {
         let left = r.x.clamp(8., (f32::from(viewport.width) - 540.).max(8.));
         let top = r.y.clamp(55., (f32::from(viewport.height) - 360.).max(55.));
         div()
+            .occlude()
+            .cursor(CursorStyle::Arrow)
             .absolute()
             .left(px(left))
             .top(px(top))
