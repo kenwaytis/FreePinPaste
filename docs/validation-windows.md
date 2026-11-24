@@ -1,5 +1,11 @@
 # Windows 验证记录
 
+## OCRia-nano-1 迁移验证
+
+在 Windows 10 专业版 22H2（Build 19045，x64）的独立构建目录，使用 Rust 1.96.0 通过了 `cargo fmt --check`、Clippy（`-D warnings`）、15 项单元测试和真实模型的中英 OCR 冒烟测试。测试保留原有断言：`FreePinPaste`、`2026`、`文字识别` 必须全部命中。LiteParse 按 150 DPI 将无 DPI 元数据的截图 PNG 转为 PDF；按同样的 DPI 光栅化可避免默认 250 DPI 带来的二次缩放，实测输出 `FreePinPaste 2026` 和 `快捷截图文字识别`。
+
+下方 Tesseract 和旧安装包的记录为历史验收。当前版本的构建与验证命令见 [windows.md](windows.md)。
+
 ## Windows 10 基线环境
 
 - Windows 10 专业版 x64，22H2 / Build 19045；本地交互式桌面 Session 1。

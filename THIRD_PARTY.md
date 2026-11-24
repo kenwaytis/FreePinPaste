@@ -6,24 +6,14 @@ FreePinPaste source is licensed under Apache-2.0. Dependency licenses remain the
 
 | Component | Fixed version / commit | License | Source |
 |---|---|---|---|
-| Tesseract | 5.5.0 / `ad3ba9c9c665d879553c27980d868225943ce9f5` | Apache-2.0 | https://github.com/tesseract-ocr/tesseract |
-| Leptonica | 1.85.0 / `63aef18d98432b8582a1565e241f7bd2ee9cc8d9` | BSD-2-Clause | https://github.com/DanBloomberg/leptonica |
-| libtiff | 4.7.2, archive SHA-256 `672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a` | libtiff permissive license | https://download.osgeo.org/libtiff/ |
-| tessdata_fast | `87416418657359cb625c412a48b6e1d6d41c29bd` | Apache-2.0 | https://github.com/tesseract-ocr/tessdata_fast |
+| OCRia-nano-1 | v1.0.0 | OCRia-nano-1 Model License | https://huggingface.co/llamaindex/OCRia-nano-1 |
+| LiteParse native CLI | 2.21.0 | Apache-2.0 | https://github.com/run-llama/liteparse/releases/tag/crates-v2.21.0 |
+| PDFium | chromium/8172 | BSD and third-party notices | https://github.com/run-llama/pdfium-binaries |
+| Microsoft ONNX Runtime | 1.31.1 | MIT and third-party notices | https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.31.1 |
 
-The Linux build script statically links Tesseract, Leptonica and a minimal libtiff into the OCR executable. Optional TIFF codecs (JBIG, LZMA, ZSTD, WebP, libdeflate) are disabled. The release script bundles the remaining non-glibc shared libraries from the build machine: libpng (libpng license), zlib (Zlib), libjpeg-turbo (BSD/IJG/zlib), and GCC runtime libraries (GPL with Runtime Library Exception). Their installed license texts and the GCC exception are included in `licenses/`. System glibc and graphics drivers are not redistributed.
+The unmodified model and its metadata are by LlamaIndex, Inc. Their use and redistribution are subject to the complete model license at `ocr/models/ocria-nano/LICENSE`, **including Section 5 and Attachment A**. The Apache-2.0 license for FreePinPaste and LiteParse does not grant rights to these weights. See the [model license](https://huggingface.co/llamaindex/OCRia-nano-1/blob/main/LICENSE) and [licensing contact](https://www.llamaindex.ai/contact).
 
-The Windows OCR build uses the same Tesseract, Leptonica, TIFF and model revisions, and additionally pins:
-
-| Component | Version / archive SHA-256 | License / source |
-|---|---|---|
-| zlib | 1.3.1 / `17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c` | Zlib — https://github.com/madler/zlib |
-| libpng | 1.6.50 / `71158e53cfdf2877bc99bcab33641d78df3f48e6e0daad030afe9cb8c031aa46` | libpng — https://github.com/pnggroup/libpng |
-| libjpeg-turbo | 3.1.0 / `35fec2e1ddfb05ecf6d93e50bc57c1e54bc81c16d611ddf6eff73fff266d8285` | BSD/IJG/zlib — https://github.com/libjpeg-turbo/libjpeg-turbo |
-
-Windows links these codecs and the MSVC CRT statically, disables OpenMP and optional TIFF codecs, and does not redistribute graphics drivers or system DLLs. Native dependency license files are included under `ocr/licenses/`.
-
-Model hashes are in `packaging/models.sha256`. Tesseract, Leptonica and tessdata license texts are in the generated `ocr/licenses/` directory. No proprietary OCR runtime or cloud service is included. System fonts are used rather than redistributed.
+`packaging/models.sha256` pins the model files and license. `scripts/prepare-ocr.py` verifies the native archives and collects notices into `ocr/licenses/`. Linux uses the system C/C++ runtime. Windows packages include app-local x64 MSVC redistributable DLLs from the builder's licensed Visual Studio installation ([Microsoft redistribution terms](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)).
 
 ## GPUI and supporting crates
 

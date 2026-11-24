@@ -19,7 +19,7 @@ function Run-Setup([string]$File, [string[]]$Arguments) {
 }
 try {
     Run-Setup "$root\dist\FreePinPaste-$version-windows-x86_64-setup.exe" @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$install`"", "/LOG=`"$root\.cache\install-smoke.log`"")
-    if (!(Test-Path $shortcut) -or !(Test-Path "$install\ocr\bin\tesseract.exe")) { throw 'Installed shortcut or OCR runtime missing' }
+    if (!(Test-Path $shortcut) -or !(Test-Path "$install\ocr\bin\lit.exe")) { throw 'Installed shortcut or OCR runtime missing' }
     & "$PSScriptRoot\run-windows-desktop.ps1" -Python $Python -Arguments "--exe `"$install\freepinpaste.exe`"" -TimeoutSeconds 180
     Copy-Item .cache\windows-validation\result.json .cache\windows-validation\installed-result.json -Force
     if ($MultiMonitor) {

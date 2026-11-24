@@ -10,7 +10,6 @@ use image::{Rgba, RgbaImage};
 #[ignore = "requires the bundled OCR runtime and system CJK fonts"]
 fn bundled_cpu_ocr_reads_chinese_and_english() {
     let ocr = Ocr::discover().unwrap();
-    assert_eq!(ocr.languages().unwrap().len(), 10);
     let mut doc = Document::new(RgbaImage::from_pixel(1000, 250, Rgba([255, 255, 255, 255])));
     let mut text = Annotation::new(
         Tool::Text,
@@ -24,7 +23,7 @@ fn bundled_cpu_ocr_reads_chinese_and_english() {
     text.text = "FreePinPaste 2026\n快捷截图 文字识别".into();
     doc.push(text);
     let image = raster::composite(&doc).unwrap();
-    let result = ocr.recognize(&image, "chi_sim+eng").unwrap();
+    let result = ocr.recognize(&image).unwrap();
     eprintln!("OCR: {result}");
     assert!(result.contains("FreePinPaste"));
     assert!(result.contains("2026"));

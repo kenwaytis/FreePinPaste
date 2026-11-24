@@ -18,7 +18,7 @@ fn main() {
     if std::env::args().skip(1).any(|arg| {
         matches!(
             arg.as_str(),
-            "--help" | "-h" | "--version" | "--ocr" | "--languages"
+            "--help" | "-h" | "--version" | "--ocr" | "--ocr-info" | "--languages"
         )
     }) {
         // Keep redirected stdout intact; interactive CLI users reuse the parent's
@@ -47,7 +47,7 @@ fn run() -> Result<()> {
         match arg.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "FreePinPaste 0.1.0\n\n  --capture       截图（默认 F1）\n  --capture-copy  框选后自动复制\n  --restart       后台重启已有实例\n  --pin           置顶选区 / 剪贴板图片 / 最近截图（默认 F3）\n  --settings      打开设置\n  --background    后台常驻\n  --quit          退出已有实例\n  --edit FILE     在编辑器中打开本地图片\n  --ocr FILE      使用内置 CPU OCR 输出文本\n  --languages     列出随包 OCR 模型\n  --no-shortcuts  本次启动不申请全局快捷键（调试用）\n"
+                    "FreePinPaste 0.1.0\n\n  --capture       截图（默认 F1）\n  --capture-copy  框选后自动复制\n  --restart       后台重启已有实例\n  --pin           置顶选区 / 剪贴板图片 / 最近截图（默认 F3）\n  --settings      打开设置\n  --background    后台常驻\n  --quit          退出已有实例\n  --edit FILE     在编辑器中打开本地图片\n  --ocr FILE      使用 OCRia-nano-1 自动识别图片文字\n  --ocr-info      检查离线 OCR 运行时\n  --no-shortcuts  本次启动不申请全局快捷键（调试用）\n"
                 );
                 return Ok(());
             }
@@ -83,18 +83,12 @@ fn run() -> Result<()> {
             "--ocr" => {
                 let path = args.next().context("--ocr 需要文件路径")?;
                 let image = image::open(path)?.to_rgba8();
-                println!(
-                    "{}",
-                    freepinpaste::ocr::Ocr::discover()?
-                        .recognize(&image, &Config::load()?.ocr_languages)?
-                );
+                println!("{}", freepinpaste::ocr::Ocr::discover()?.recognize(&image)?);
                 return Ok(());
             }
-            "--languages" => {
-                println!(
-                    "{}",
-                    freepinpaste::ocr::Ocr::discover()?.languages()?.join("\n")
-                );
+            "--ocr-info" | "--languages" => {
+                freepinpaste::ocr::Ocr::discover()?;
+                println!("{}", freepinpaste::ocr::DESCRIPTION);
                 return Ok(());
             }
             _ => bail!("未知参数 {arg}；使用 --help 查看帮助"),

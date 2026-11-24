@@ -10,39 +10,35 @@ pub struct Settings {
     capture: Entity<InputState>,
     pin: Entity<InputState>,
     pin_close_action: PinCloseAction,
-    languages: Entity<InputState>,
     font: Entity<InputState>,
     save_dir: Entity<InputState>,
     autostart: bool,
     saving: bool,
     message: String,
-    models: String,
+    ocr_status: String,
 }
 impl Settings {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let c = cx.global::<State>().config.clone();
         let capture = cx.new(|cx| InputState::new(window, cx).default_value(c.capture_shortcut));
         let pin = cx.new(|cx| InputState::new(window, cx).default_value(c.pin_shortcut));
-        let languages = cx.new(|cx| InputState::new(window, cx).default_value(c.ocr_languages));
         let font = cx.new(|cx| InputState::new(window, cx).default_value(c.font_family));
         let save_dir = cx.new(|cx| {
             InputState::new(window, cx).default_value(c.save_directory.display().to_string())
         });
-        let models = crate::ocr::Ocr::discover()
-            .and_then(|o| o.languages())
-            .map(|l| l.join(" · "))
+        let ocr_status = crate::ocr::Ocr::discover()
+            .map(|_| crate::ocr::DESCRIPTION.to_owned())
             .unwrap_or_else(|e| e.to_string());
         Self {
             capture,
             pin,
             pin_close_action: c.pin_close_action,
-            languages,
             font,
             save_dir,
             autostart: config::autostart_enabled(),
             saving: false,
             message: String::new(),
-            models,
+            ocr_status,
         }
     }
     fn save(&mut self, cx: &mut Context<Self>) {
@@ -53,7 +49,6 @@ impl Settings {
             capture_shortcut: self.capture.read(cx).value().trim().to_string(),
             pin_shortcut: self.pin.read(cx).value().trim().to_string(),
             pin_close_action: self.pin_close_action,
-            ocr_languages: self.languages.read(cx).value().trim().to_string(),
             font_family: self.font.read(cx).value().to_string(),
             save_directory: self.save_dir.read(cx).value().as_ref().into(),
         };
@@ -273,15 +268,7 @@ impl Render for Settings {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("离线 OCR · CPU"),
                     )
-                    .child(field("识别语言", &self.languages))
-                    .child(div().text_size(px(12.)).text_color(rgb(0x748494)).child(
-                        "模型名用 + 分隔。中文推荐 chi_sim+eng；日文 jpn+eng。只加载所选语言。",
-                    ))
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .child(format!("随包模型：{}", self.models)),
-                    ),
+                    .child(div().text_size(px(12.)).child(self.ocr_status.clone())),
             )
             .child(field("标注字体", &self.font))
             .child(field("保存目录", &self.save_dir))

@@ -16,7 +16,7 @@ Windows 使用、构建和验收边界见 **[docs/windows.md](docs/windows.md)**
 - 像素橡皮擦：擦除**标注层**，不破坏原截图；擦除也能撤销。
 - 撤销、还原（即**重做**）、退出、置顶、保存 PNG、复制 PNG。
 - 独立无边框置顶贴图：拖动移动、滚轮缩放、Ctrl+C 复制；按设置双击或右键关闭，Esc 始终可关闭；右键关闭模式下双击恢复原始尺寸。
-- 随包离线 CPU OCR：**Tesseract 5.5.0 + Leptonica 1.85.0 + tessdata_fast**，不调用云端，不需要 Python 或系统 Tesseract。
+- 随包离线 CPU OCR：**OCRia-nano-1**，通过原生 LiteParse 和 ONNX Runtime 在本机识别，无需 GPU、Python 或首次使用时下载模型。
 - 用户级开机自启动（实际为**登录图形桌面后启动**），默认关闭，在设置中启用。
 - 单实例和本地命令转发；关闭设置或截图后后台继续运行。
 - 系统托盘：截屏、截屏并自动复制、设置、重新启动、退出；快速模式框选松手即复制。
@@ -29,15 +29,15 @@ Windows 使用、构建和验收边界见 **[docs/windows.md](docs/windows.md)**
 - Linux 托盘依赖 StatusNotifier/AppIndicator 宿主；没有宿主时仍可后台运行，可从启动器或 `freepinpaste --settings` 打开设置。Windows 使用系统通知区域，并在 Explorer 重启后重新注册图标。
 - 暂无滚动长截图、窗口自动吸附、马赛克、贴图历史管理、标注对象二次选择编辑。这些不在本次首版工具清单内。
 - 保存格式固定为 PNG；文件名严格使用系统保存对话框确认的路径，不偷偷修改扩展名。
-- OCR 的 10 种语言可组合选择，不等于自动语言检测。低清晰度、手写、复杂排版不在首版识别质量承诺内。
+- OCR 自动识别文字系统，返回可编辑的纯文本；面板不展示模型的边界框。
 
 ## Windows 发行包
 
-提供 `FreePinPaste-windows-x86_64.zip` 和 `FreePinPaste-0.1.0-windows-x86_64-setup.exe`，均包含离线 OCR 与 10 种语言模型。
+提供 `FreePinPaste-windows-x86_64.zip` 和 `FreePinPaste-0.1.0-windows-x86_64-setup.exe`，均包含 OCRia-nano-1 离线运行时。
 
 - **ZIP**：完整解压后运行 `freepinpaste.exe`，不要只复制 EXE。
 - **安装程序**：当前用户安装，默认目录 `%LOCALAPPDATA%\Programs\FreePinPaste`，创建开始菜单入口并提供卸载；无需管理员权限。
-- 不需要另外安装 Rust、Python、Tesseract 或 VC++ 运行库。首版安装程序未签名，Windows 可能提示未知发布者。
+- 不需要另外安装 Rust、Python 或系统 OCR；识别所需的 VC++ 运行库放在包内。首版安装程序未签名，Windows 可能提示未知发布者。
 - Windows 不需要「授权截图」。F1 / F3 被其他程序占用时，在设置中改为其他组合，例如 `Ctrl+Shift+A`，保存后生效。
 - ZIP 与安装版共享 `%APPDATA%\freepinpaste\config.toml`。自启动默认关闭；移动 ZIP 目录后应重新设置自启动。更新前请先从托盘退出，卸载保留用户配置。
 
@@ -50,7 +50,7 @@ Windows 使用、构建和验收边界见 **[docs/windows.md](docs/windows.md)**
 ```text
 dist/FreePinPaste-linux-x86_64/
 ├── freepinpaste
-├── ocr/                    # 引擎、模型、所需非 glibc 动态库及许可
+├── ocr/                    # 原生 LiteParse、PDFium、OCRia 模型、ONNX Runtime 及许可
 ├── licenses/
 ├── install.sh
 └── README.md
@@ -122,29 +122,23 @@ Linux 复制后的图片由后台进程提供；重启或退出后的保留行�
 
 Linux 图片复制由独立 X11 selection owner 提供 `image/png`，应用在后台存活时持续服务剪贴板。已经验证通过 Mutter 桥接到原生 Wayland 应用。不能直接依赖 GPUI 0.2.2 的 `write_to_clipboard(Image)`：该版本 X11 实现实际只写文本。
 
-### OCR 语言
+### 离线 OCR：OCRia-nano-1
 
-| 模型名 | 语言 |
-|---|---|
-| `chi_sim` / `chi_tra` | 简体中文 / 繁体中文 |
-| `eng` | 英语 |
-| `jpn` / `kor` | 日语 / 韩语 |
-| `fra` / `deu` / `spa` | 法语 / 德语 / 西班牙语 |
-| `rus` / `ara` | 俄语 / 阿拉伯语 |
+编辑器与命令行均使用同一条本地识别路径：以原始分辨率导出选区，通过随包 LiteParse 显式调用 `ocria-nano`，从单页 JSON 取回文本。模型自动选择拉丁、中日韩、RTL 或其他文字识别器，不需要指定语言。旧配置中的 `ocr_languages` 将被忽略。模型缺失时直接报错，不回退其他引擎。识别在工作线程执行，超时 90 秒后终止子进程，清理临时文件。
 
-默认 `chi_sim+eng`。在设置中用 `+` 组合，例如 `jpn+eng`。只加载所选语言，不把全部模型同时塞进 CPU。OCR 在工作线程运行：Linux 限制 OpenMP 线程数为 4，Windows 构建不依赖 OpenMP DLL；单次识别超时 90 秒；输入和结果临时文件在任务结束后删除。
+**模型使用条款：**使用或再分发随包 OCR 权重及配套数据必须遵守 [LlamaIndex 的 OCRia-nano-1 模型许可](https://huggingface.co/llamaindex/OCRia-nano-1/blob/main/LICENSE)，包括第 5 条及附件 A 的用途限制；该部分不适用 FreePinPaste 的 Apache-2.0。上年总收入或累计融资超过 200 万美元的组织有个人/研究以外的用途限制；竞争产品或服务另受限制，与规模无关。完整条款随包位于 `ocr/models/ocria-nano/LICENSE`。
 
 ```bash
-freepinpaste --languages
+freepinpaste --ocr-info
 freepinpaste --ocr /path/to/image.png
 ```
 
 ## Linux 源码构建
 
-本机已使用 Rust 1.96.0、CMake、GCC 和系统开发库成功构建。Cargo 锁文件纳入仓库。依赖包括 X11/XKB、Wayland 开发库（GPUI Component 传递启用）、fontconfig/freetype、Vulkan、libpng/zlib/libtiff；不需要系统安装 Tesseract。
+本机已使用 Rust 1.96.0、CMake、GCC 和系统开发库成功构建。Cargo 锁文件纳入仓库。依赖包括 X11/XKB、Wayland 开发库（GPUI Component 传递启用）、fontconfig/freetype、Vulkan 等；准备 OCR 运行时需要 Python 3 和 curl。
 
 ```bash
-# 仅首次需要下载 OCR 源码和语言数据；安装仅写项目 runtime/ 与 .cache/
+# 首次下载固定版本的 OCR 模型及原生运行时，只写 runtime/ocria 和 .cache/ocria
 ./scripts/build-ocr.sh
 
 cargo build --locked
@@ -154,7 +148,7 @@ cargo run --locked -- --settings
 ./scripts/package.sh
 ```
 
-源代码和模型固定到提交，下载内容校验 SHA-256。OCR 数据约 24 MB，完整 OCR 目录约 28 MB（最终发行包另含依赖库）。`runtime/`、`target/`、`dist/` 和 `.cache/` 不提交到 Git。
+LiteParse CLI、模型和 ONNX Runtime 的下载内容均校验 SHA-256。当前 Linux x64 的完整 OCR 目录约 89 MiB。`runtime/`、`target/`、`dist/` 和 `.cache/` 不提交到 Git。
 
 如果 Cargo 网络遇到 TLS 错误，可尝试 `CARGO_HTTP_MULTIPLEXING=false cargo build --locked`；依赖已缓存时可使用 `--offline`。
 
@@ -196,7 +190,7 @@ cargo run --example clipboard_probe -- /path/to/image.png
 /usr/bin/wl-paste --type image/png > /tmp/copied.png
 ```
 
-自动化覆盖选区反向拖动与裁剪、工具栏边界、历史分支、橡皮擦与撤销、PNG 像素往返、配置、启动项创建/移除及语言校验。另有真实 CPU 中英混排 OCR 测试。
+自动化覆盖选区反向拖动与裁剪、工具栏边界、历史分支、橡皮擦与撤销、PNG 像素往返、配置、启动项创建/移除及旧配置迁移。另有真实 CPU 中英混排 OCR 测试。
 
 当前 GNOME 对 XTest 的模拟鼠标事件不生效，因此不把自动点击脚本当作 GUI 验收依据。实际授权、F1、框选、绘图、保存和复制已由用户现场操作确认；置顶已检查 `_NET_WM_STATE_ABOVE`。详细记录见 [docs/validation.md](docs/validation.md)。
 
@@ -226,4 +220,4 @@ GPUI 0.2.2 的兼容处理：X11 `HasWindowHandle` 未实现，因此使用本�
 - [EWMH 窗口状态和全屏多屏协议](https://specifications.freedesktop.org/wm-spec/latest/)
 - [ksni / StatusNotifier 托盘](https://docs.rs/ksni/0.3.7/ksni/)
 - [GPUI 0.2.2](https://docs.rs/gpui/0.2.2/gpui/)
-- [Tesseract](https://github.com/tesseract-ocr/tesseract) / [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)
+- [LiteParse](https://github.com/run-llama/liteparse) / [OCRia-nano-1](https://huggingface.co/llamaindex/OCRia-nano-1)

@@ -17,7 +17,6 @@ pub struct Config {
     pub capture_shortcut: String,
     pub pin_shortcut: String,
     pub pin_close_action: PinCloseAction,
-    pub ocr_languages: String,
     pub font_family: String,
     pub save_directory: PathBuf,
 }
@@ -28,7 +27,6 @@ impl Default for Config {
             capture_shortcut: "F1".into(),
             pin_shortcut: "F3".into(),
             pin_close_action: PinCloseAction::default(),
-            ocr_languages: "chi_sim+eng".into(),
             font_family: "sans-serif".into(),
             save_directory: BaseDirs::new().unwrap().home_dir().join("Pictures"),
         }
@@ -63,7 +61,6 @@ impl Config {
         {
             bail!("截图和置顶快捷键不能相同");
         }
-        crate::ocr::validate_languages(&self.ocr_languages)?;
         #[cfg(target_os = "windows")]
         crate::desktop::validate_shortcuts(self)?;
         Ok(())
@@ -213,12 +210,10 @@ mod tests {
         assert_eq!(c.capture_shortcut, "F1");
         assert_eq!(c.pin_shortcut, "F3");
         assert_eq!(c.pin_close_action, PinCloseAction::DoubleClick);
-        assert_eq!(
-            toml::from_str::<Config>(&toml::to_string(&c).unwrap())
-                .unwrap()
-                .ocr_languages,
-            "chi_sim+eng"
-        );
+        let old: Config =
+            toml::from_str("ocr_languages = 'chi_sim+eng'\npin_shortcut = 'F4'").unwrap();
+        assert_eq!(old.pin_shortcut, "F4");
+        assert!(!toml::to_string(&old).unwrap().contains("ocr_languages"));
     }
     #[test]
     fn pin_close_action_defaults_for_old_configs_and_roundtrips() {

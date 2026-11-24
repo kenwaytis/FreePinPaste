@@ -1,5 +1,7 @@
 # 当前环境验收记录
 
+OCRia-nano-1 迁移后，Linux x64 已通过 `cargo test --locked --test ocr_smoke -- --ignored --nocapture`，使用真实随包模型识别中英文。下方原版 Tesseract 的识别结果、依赖和包大小为历史记录，不代表当前发行包。
+
 ## 环境
 
 - Arch Linux x86_64，GNOME Shell 51.1，Wayland 会话，XWayland `DISPLAY=:0`。

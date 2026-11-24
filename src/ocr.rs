@@ -1,86 +1,105 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use image::RgbaImage;
-#[cfg(target_os = "windows")]
+use serde::Deserialize;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const ENGINE: &str = "bin/tesseract.exe";
-#[cfg(not(target_os = "windows"))]
-const ENGINE: &str = "bin/tesseract";
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug)]
+#[cfg(windows)]
+const BINARIES: [&str; 3] = [
+    "bin/lit.exe",
+    "bin/pdfium.dll",
+    "models/ocria-nano/runtime/onnxruntime.dll",
+];
+#[cfg(not(windows))]
+const BINARIES: [&str; 3] = [
+    "bin/lit",
+    "bin/libpdfium.so",
+    "models/ocria-nano/runtime/libonnxruntime.so",
+];
+pub const DESCRIPTION: &str =
+    "OCRia-nano-1 · CPU · 自动识别文字系统（含中日韩、拉丁及从右到左的文字）";
+
 pub struct Ocr {
-    pub directory: PathBuf,
+    directory: PathBuf,
 }
 impl Ocr {
-    pub fn discover() -> Result<Self> {
-        let exe = std::env::current_exe()?;
-        let mut candidates = Vec::new();
-        if let Some(path) = std::env::var_os("FREEPINPASTE_OCR_DIR") {
-            candidates.push(PathBuf::from(path));
+    fn open(directory: PathBuf) -> Result<Self> {
+        for file in BINARIES.into_iter().chain(
+            include_str!("../packaging/models.sha256")
+                .lines()
+                .map(|line| line.split_whitespace().last().unwrap()),
+        ) {
+            ensure!(
+                directory.join(file).is_file(),
+                "OCRia-nano-1 运行时缺少 {}",
+                directory.join(file).display()
+            );
         }
-        candidates.push(exe.parent().unwrap().join("ocr"));
-        candidates.push(exe.parent().unwrap().join("../share/freepinpaste/ocr"));
-        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtime/ocr"));
-        let directory = candidates.into_iter().find(|p| p.join(ENGINE).is_file())
-            .context("未找到随包 OCR 引擎。请运行当前平台的 scripts/build-ocr 脚本；发行包应包含 ocr/bin/tesseract[.exe]")?;
         Ok(Self { directory })
     }
-    pub fn languages(&self) -> Result<Vec<String>> {
-        let mut languages = std::fs::read_dir(self.directory.join("tessdata"))?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let p = e.path();
-                (p.extension()?.to_str()? == "traineddata")
-                    .then(|| p.file_stem().unwrap().to_string_lossy().into_owned())
-            })
-            .collect::<Vec<_>>();
-        languages.sort();
-        Ok(languages)
-    }
-    pub fn recognize(&self, image: &RgbaImage, languages: &str) -> Result<String> {
-        validate_languages(languages)?;
-        let available = self.languages()?;
-        for language in languages.split('+') {
-            if !available.iter().any(|s| s == language) {
-                bail!("发行包缺少 OCR 模型：{language}");
-            }
+
+    pub fn discover() -> Result<Self> {
+        if let Some(path) = std::env::var_os("FREEPINPASTE_OCR_DIR") {
+            return Self::open(path.into());
         }
+        let exe = std::env::current_exe()?;
+        let parent = exe.parent().context("无法定位程序目录")?;
+        let mut candidates = vec![parent.join("ocr"), parent.join("../share/freepinpaste/ocr")];
+        // A packaged release must never silently pick up a developer's runtime.
+        if cfg!(debug_assertions)
+            || parent == Path::new(env!("CARGO_MANIFEST_DIR")).join("target/release")
+        {
+            candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/ocria"));
+        }
+        let directory = candidates
+            .into_iter()
+            .find(|p| p.is_dir())
+            .context("未找到 OCRia-nano-1；请完整解压发行包，或运行 scripts/build-ocr 脚本")?;
+        Self::open(directory)
+    }
+
+    pub fn recognize(&self, image: &RgbaImage) -> Result<String> {
         let temp = tempfile::tempdir()?;
         let input = temp.path().join("input.png");
-        // Upscale small UI text; no network, GPU runtime or Python process is involved.
-        if image.width() < 1800 && image.height() < 1200 {
-            image::imageops::resize(
-                image,
-                image.width() * 2,
-                image.height() * 2,
-                image::imageops::FilterType::CatmullRom,
-            )
-            .save(&input)?;
-        } else {
-            image.save(&input)?;
-        }
-        let output_base = temp.path().join("result");
-        let stderr = std::fs::File::create(temp.path().join("stderr"))?;
-        let mut command = Command::new(self.directory.join(ENGINE));
-        #[cfg(target_os = "windows")]
+        image.save(&input)?;
+        let output = temp.path().join("result.json");
+        let log = temp.path().join("stderr");
+        let mut command = Command::new(self.directory.join(BINARIES[0]));
+        #[cfg(windows)]
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
         let mut child = command
+            .args([
+                "parse",
+                "--ocr-backend",
+                "ocria-nano",
+                // LiteParse maps PNGs without DPI metadata to a 150 DPI PDF.
+                // Render at that DPI to preserve screenshot pixels at 1:1.
+                "--dpi",
+                "150",
+                "--format",
+                "json",
+                "--quiet",
+                "--output",
+            ])
+            .arg(&output)
             .arg(input)
-            .arg(&output_base)
-            .args(["--tessdata-dir"])
-            .arg(self.directory.join("tessdata"))
-            .args(["-l", languages, "--oem", "1", "--psm", "11"])
-            .env("OMP_THREAD_LIMIT", "4")
+            .env("LITEPARSE_MODEL_DIR", self.directory.join("models"))
+            .env("PDFIUM_LIB_PATH", self.directory.join("bin"))
+            .env("ORT_DYLIB_PATH", self.directory.join(BINARIES[2]))
+            .env("ORT_DISABLE_TELEMETRY", "1")
+            // Keep LiteParse's intermediate PDF in our tempdir, including on timeout.
+            .env("TMPDIR", temp.path())
+            .env("TMP", temp.path())
+            .env("TEMP", temp.path())
             .stdout(Stdio::null())
-            .stderr(stderr)
+            .stderr(std::fs::File::create(&log)?)
             .spawn()
-            .context("无法启动内置 Tesseract")?;
+            .context("无法启动随包 LiteParse")?;
         let start = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {
@@ -89,43 +108,27 @@ impl Ocr {
             if start.elapsed() > Duration::from_secs(90) {
                 let _ = child.kill();
                 let _ = child.wait();
-                bail!("OCR 超时（90 秒），请缩小选区或减少同时识别的语言");
+                bail!("OCR 超时（90 秒），请缩小选区");
             }
             std::thread::sleep(Duration::from_millis(40));
         };
         if !status.success() {
             bail!(
-                "OCR 失败：{}",
-                std::fs::read_to_string(temp.path().join("stderr"))?
+                "OCRia-nano-1 识别失败（{status}）：{}",
+                String::from_utf8_lossy(&std::fs::read(log)?).trim()
             );
         }
-        Ok(std::fs::read_to_string(output_base.with_extension("txt"))?
-            .trim()
-            .to_string())
-    }
-}
-
-pub fn validate_languages(languages: &str) -> Result<()> {
-    if languages.is_empty()
-        || !languages
-            .split('+')
-            .all(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
-    {
-        bail!("OCR 语言使用模型名并以 + 分隔，例如 chi_sim+eng、jpn+eng");
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn language_validation() {
-        for value in ["chi_sim+eng", "jpn+kor", "ara+rus"] {
-            assert!(validate_languages(value).is_ok());
+        // CLI text output adds a synthetic page header. The editor wants only the screenshot text.
+        #[derive(Deserialize)]
+        struct Page {
+            text: String,
         }
-        for value in ["", "+eng", "eng++fra", "../eng", "eng;true"] {
-            assert!(validate_languages(value).is_err());
+        #[derive(Deserialize)]
+        struct Screenshot {
+            pages: [Page; 1],
         }
+        let Screenshot { pages: [page] } = serde_json::from_reader(std::fs::File::open(output)?)
+            .context("LiteParse 未返回有效的单页 OCR 结果")?;
+        Ok(page.text.trim().to_string())
     }
 }

@@ -11,8 +11,8 @@ FreePinPaste-windows-x86_64.zip
 FreePinPaste-0.1.0-windows-x86_64-setup.exe
 FreePinPaste-windows-x86_64/
 ├── freepinpaste.exe
-├── ocr/bin/tesseract.exe
-├── ocr/tessdata/             # 现有 10 种语言，默认 chi_sim+eng
+├── ocr/bin/                  # lit.exe、pdfium.dll 与 app-local VC++ 运行库
+├── ocr/models/ocria-nano/    # 模型、独立许可和 runtime/onnxruntime.dll
 ├── ocr/licenses/
 ├── licenses/                # Cargo 依赖清单及上游许可
 └── docs/
@@ -20,7 +20,7 @@ FreePinPaste-windows-x86_64/
 
 - ZIP 必须完整解压，不可只移动 EXE。ZIP 是免安装包，配置仍在用户目录，不是无痕运行模式。
 - 安装程序为当前用户安装，默认 `%LOCALAPPDATA%\Programs\FreePinPaste`，带开始菜单入口、可选桌面快捷方式和卸载。**不要求管理员权限，不默认启用自启动**。
-- Rust 程序与 OCR 使用静态 CRT，不要求另装 VC++ Redistributable、Python 或系统 Tesseract。构建用的 Python 不属于运行依赖。
+- 主程序使用静态 CRT；原生 LiteParse 和 ONNX Runtime 使用包内的 x64 VC++ 运行库，无需 Python 或系统 OCR。
 - 首版 EXE 和安装程序没有 Authenticode 签名，Windows 可能提示未知发布者。发布时附 SHA-256 校验文件；校验和不等同于代码签名。
 - 配置：`%APPDATA%\freepinpaste\config.toml`。ZIP 和安装版共享配置；同一用户同一桌面会话内只运行一个实例。
 - 用户在设置中打开自启动后，写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\FreePinPaste`，值为带引号的当前 EXE 路径和 `--background`。移动 ZIP 目录后需重新设置。
@@ -64,7 +64,7 @@ Windows 不使用 Portal，不出现 GNOME 的授权截图、系统改键界面�
 在仓库目录运行：
 
 ```powershell
-# 固定版本源码 + SHA-256 校验，全部工作文件位于 .cache/ 和 runtime/
+# 固定版本原生发行包和权重 + SHA-256 校验，全部工作文件位于 .cache/ 和 runtime/
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-ocr.ps1
 
 cargo build --locked
@@ -81,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 # 已构建 OCR 时可传 -SkipOcr；已有 Inno Setup 可用 -Iscc 指定 ISCC.exe
 ```
 
-OCR 固定为 Tesseract 5.5.0、Leptonica 1.85.0 和现有 tessdata_fast 模型；静态链接 zlib、libpng、JPEG 和 TIFF。TIFF/JPEG 也用于 Leptonica 内置位图字体，不能因为输入是 PNG 就删除它们。Windows 构建关闭 OpenMP，不依赖 OpenMP DLL；识别仍在线程中运行，有 90 秒超时，子进程不弹控制台。
+OCR 使用 LiteParse 2.21.0、OCRia-nano-1 v1.0.0 和 ONNX Runtime 1.31.1。构建脚本从 VS 的 `VCToolsRedistDir` 或 `vswhere` 找到 x64 VC++ 可再分发 DLL，随 `lit.exe` 放置。识别有 90 秒超时，子进程不弹控制台。模型的独立使用条款见发行包 `ocr/models/ocria-nano/LICENSE`。
 
 ## 从 Linux 开发机联调
 
@@ -92,7 +92,7 @@ python3 scripts/windows-remote.py sync
 python3 scripts/windows-remote.py exec 'cargo test --locked; exit $LASTEXITCODE'
 ```
 
-SSH 在 Session 0，不是用户交互桌面。不要在 SSH 中直接启动 GUI 并将成功退出等同于验收。`--ocr`、`--languages` 和构建测试可在 SSH 下运行；截图、贴图、设置和实例控制在相应用户桌面会话中运行。
+SSH 在 Session 0，不是用户交互桌面。不要在 SSH 中直接启动 GUI 并将成功退出等同于验收。`--ocr`、`--ocr-info` 和构建测试可在 SSH 下运行；截图、贴图、设置和实例控制在相应用户桌面会话中运行。
 
 已获用户允许的自动桌面验证：
 

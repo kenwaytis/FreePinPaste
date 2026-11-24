@@ -383,11 +383,10 @@ impl Editor {
         self.message = "正在本地 CPU 上识别…".into();
         self.text
             .update(cx, |input, cx| input.set_value("正在识别…", window, cx));
-        let languages = cx.global::<State>().config.ocr_languages.clone();
         let (tx, rx) = async_channel::bounded(1);
         std::thread::spawn(move || {
             let result = crate::ocr::Ocr::discover()
-                .and_then(|ocr| ocr.recognize(&image, &languages))
+                .and_then(|ocr| ocr.recognize(&image))
                 .map_err(|e| format!("{e:#}"));
             let _ = tx.send_blocking(result);
         });

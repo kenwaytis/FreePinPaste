@@ -26,7 +26,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-LicenseFile=..\..\LICENSE
+LicenseFile={#PackageDir}\ocr\models\ocria-nano\LICENSE
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
