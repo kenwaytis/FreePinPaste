@@ -2,6 +2,21 @@
 
 OCRia-nano-1 迁移后，Linux x64 已通过 `cargo test --locked --test ocr_smoke -- --ignored --nocapture`，使用真实随包模型识别中英文。下方原版 Tesseract 的识别结果、依赖和包大小为历史记录，不代表当前发行包。
 
+## 250 DPI 与桌面常驻 OCR（Linux x64）
+
+同一份随包 OCRia-nano-1，在 250 DPI 下比较全新 `lit parse`（3 次中位数）与预热后的 worker（请求到文本回传；输入 PNG 已就绪，不含编辑器合成、PNG 编码或绘制）。两张图各识别 6 次，文本均与独立 CLI 一致。
+
+| 样图 | 独立 CLI | 预热后首张 | 后续 5 次中位数 | 识别后空闲 worker RSS |
+|---|---:|---:|---:|---:|
+| 两行中英文本，1000×250 | 217 ms | 83 ms | 71 ms | 153 MiB |
+| 设置窗口，660×720 | 388 ms | 261 ms | 238 ms | 215 MiB |
+
+从启动 worker 到模型就绪用时 129–131 ms，尚未识图时 RSS 为 93 MiB。通过桌面请求接口传入第一张 RGBA 图（含 debug 构建的 PNG 编码），预热后首次 132 ms，后续三次 106–113 ms。这些是本机样图数据，不是识别质量指标或跨机器内存上限。
+
+- 真实模型冒烟测试：`cargo test --locked --test ocr_smoke -- --ignored --nocapture`。检查中英关键词，并比对独立 CLI 与连续两次桌面识别的完整文本。
+- 在独立桌面实例启动 `--background --no-shortcuts`，未打开编辑器即有预热进程；`--restart` 后旧 worker 已回收，`--quit` 后新 worker 也已回收。
+- 向测试实例的 worker 发送 `SIGSTOP` 模拟推理卡死，90 秒后请求返回超时；下一次请求自动加载新 worker 并返回与 CLI 一致的文本。关闭服务后没有遗留子进程或临时目录。
+
 ## 环境
 
 - Arch Linux x86_64，GNOME Shell 51.1，Wayland 会话，XWayland `DISPLAY=:0`。

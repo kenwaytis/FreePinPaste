@@ -9,6 +9,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod desktop;
+pub use desktop::{DesktopOcr, OcrClient};
+
+const DPI: &str = "250";
+const TIMEOUT: Duration = Duration::from_secs(90);
+
 #[cfg(windows)]
 const BINARIES: [&str; 3] = [
     "bin/lit.exe",
@@ -24,12 +30,23 @@ const BINARIES: [&str; 3] = [
 pub const DESCRIPTION: &str =
     "OCRia-nano-1 · CPU · 自动识别文字系统（含中日韩、拉丁及从右到左的文字）";
 
+fn scratch_dir() -> std::io::Result<tempfile::TempDir> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("freepinpaste-ocr-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir()
+}
+
 pub struct Ocr {
     directory: PathBuf,
 }
 impl Ocr {
     fn open(directory: PathBuf) -> Result<Self> {
-        for file in BINARIES.into_iter().chain(
+        for file in BINARIES.into_iter().chain([desktop::WORKER]).chain(
             include_str!("../packaging/models.sha256")
                 .lines()
                 .map(|line| line.split_whitespace().last().unwrap()),
@@ -40,7 +57,9 @@ impl Ocr {
                 directory.join(file).display()
             );
         }
-        Ok(Self { directory })
+        Ok(Self {
+            directory: directory.canonicalize()?,
+        })
     }
 
     pub fn discover() -> Result<Self> {
@@ -63,24 +82,35 @@ impl Ocr {
         Self::open(directory)
     }
 
+    fn command(&self, executable: &str, scratch: &Path) -> Command {
+        let mut command = Command::new(self.directory.join(executable));
+        #[cfg(windows)]
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        command
+            .env("LITEPARSE_MODEL_DIR", self.directory.join("models"))
+            .env("PDFIUM_LIB_PATH", self.directory.join("bin"))
+            .env("ORT_DYLIB_PATH", self.directory.join(BINARIES[2]))
+            .env("ORT_DISABLE_TELEMETRY", "1")
+            .env("TMPDIR", scratch)
+            .env("TMP", scratch)
+            .env("TEMP", scratch);
+        command
+    }
+
     pub fn recognize(&self, image: &RgbaImage) -> Result<String> {
-        let temp = tempfile::tempdir()?;
+        let temp = scratch_dir()?;
         let input = temp.path().join("input.png");
         image.save(&input)?;
         let output = temp.path().join("result.json");
         let log = temp.path().join("stderr");
-        let mut command = Command::new(self.directory.join(BINARIES[0]));
-        #[cfg(windows)]
-        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        let mut child = command
+        let mut child = self
+            .command(BINARIES[0], temp.path())
             .args([
                 "parse",
                 "--ocr-backend",
                 "ocria-nano",
-                // LiteParse maps PNGs without DPI metadata to a 150 DPI PDF.
-                // Render at that DPI to preserve screenshot pixels at 1:1.
                 "--dpi",
-                "150",
+                DPI,
                 "--format",
                 "json",
                 "--quiet",
@@ -88,14 +118,6 @@ impl Ocr {
             ])
             .arg(&output)
             .arg(input)
-            .env("LITEPARSE_MODEL_DIR", self.directory.join("models"))
-            .env("PDFIUM_LIB_PATH", self.directory.join("bin"))
-            .env("ORT_DYLIB_PATH", self.directory.join(BINARIES[2]))
-            .env("ORT_DISABLE_TELEMETRY", "1")
-            // Keep LiteParse's intermediate PDF in our tempdir, including on timeout.
-            .env("TMPDIR", temp.path())
-            .env("TMP", temp.path())
-            .env("TEMP", temp.path())
             .stdout(Stdio::null())
             .stderr(std::fs::File::create(&log)?)
             .spawn()
@@ -105,7 +127,7 @@ impl Ocr {
             if let Some(status) = child.try_wait()? {
                 break status;
             }
-            if start.elapsed() > Duration::from_secs(90) {
+            if start.elapsed() > TIMEOUT {
                 let _ = child.kill();
                 let _ = child.wait();
                 bail!("OCR 超时（90 秒），请缩小选区");

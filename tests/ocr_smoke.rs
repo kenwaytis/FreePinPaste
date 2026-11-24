@@ -1,14 +1,14 @@
 //! Run after scripts/build-ocr.sh: cargo test --test ocr_smoke -- --ignored
 use freepinpaste::{
     document::{Annotation, Document, Point, Style, Tool},
-    ocr::Ocr,
+    ocr::{DesktopOcr, Ocr},
     raster,
 };
 use image::{Rgba, RgbaImage};
 
-#[test]
+#[tokio::test]
 #[ignore = "requires the bundled OCR runtime and system CJK fonts"]
-fn bundled_cpu_ocr_reads_chinese_and_english() {
+async fn bundled_cpu_ocr_reads_chinese_and_english() {
     let ocr = Ocr::discover().unwrap();
     let mut doc = Document::new(RgbaImage::from_pixel(1000, 250, Rgba([255, 255, 255, 255])));
     let mut text = Annotation::new(
@@ -28,4 +28,12 @@ fn bundled_cpu_ocr_reads_chinese_and_english() {
     assert!(result.contains("FreePinPaste"));
     assert!(result.contains("2026"));
     assert!(result.replace(' ', "").contains("文字识别"));
+
+    let (desktop, client) = DesktopOcr::start();
+    let image = std::sync::Arc::new(image);
+    for _ in 0..2 {
+        assert_eq!(client.recognize(image.clone()).await.unwrap(), result);
+    }
+    drop(desktop);
+    assert!(client.recognize(image).await.is_err());
 }

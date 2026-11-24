@@ -383,38 +383,31 @@ impl Editor {
         self.message = "正在本地 CPU 上识别…".into();
         self.text
             .update(cx, |input, cx| input.set_value("正在识别…", window, cx));
-        let (tx, rx) = async_channel::bounded(1);
-        std::thread::spawn(move || {
-            let result = crate::ocr::Ocr::discover()
-                .and_then(|ocr| ocr.recognize(&image))
-                .map_err(|e| format!("{e:#}"));
-            let _ = tx.send_blocking(result);
-        });
+        let ocr = cx.global::<crate::ocr::OcrClient>().clone();
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(result) = rx.recv().await {
-                let _ = this.update_in(cx, |this, window, cx| {
-                    this.busy = false;
-                    let text = match result {
-                        Ok(text) => {
-                            this.message = if text.is_empty() {
-                                "没有识别到文字".into()
-                            } else {
-                                "识别完成 · 可编辑后复制".into()
-                            };
-                            text
-                        }
-                        Err(e) => {
-                            this.message = format!("OCR 失败：{e}");
-                            String::new()
-                        }
-                    };
-                    this.text.update(cx, |input, cx| {
-                        input.set_value(text, window, cx);
-                        input.focus(window, cx);
-                    });
-                    cx.notify();
+            let result = ocr.recognize(image).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.busy = false;
+                let text = match result {
+                    Ok(text) => {
+                        this.message = if text.is_empty() {
+                            "没有识别到文字".into()
+                        } else {
+                            "识别完成 · 可编辑后复制".into()
+                        };
+                        text
+                    }
+                    Err(e) => {
+                        this.message = format!("OCR 失败：{e:#}");
+                        String::new()
+                    }
+                };
+                this.text.update(cx, |input, cx| {
+                    input.set_value(text, window, cx);
+                    input.focus(window, cx);
                 });
-            }
+                cx.notify();
+            });
         })
         .detach();
     }

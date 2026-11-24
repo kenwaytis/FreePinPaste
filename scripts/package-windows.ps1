@@ -14,7 +14,7 @@ if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force "$out\licenses" | Out-Null
 Copy-Item target\release\freepinpaste.exe $out
 Copy-Item runtime\ocria "$out\ocr" -Recurse
-foreach ($file in 'bin\lit.exe', 'bin\pdfium.dll', 'bin\msvcp140.dll', 'bin\msvcp140_1.dll', 'bin\vcruntime140.dll', 'bin\vcruntime140_1.dll', 'models\ocria-nano\runtime\onnxruntime.dll') {
+foreach ($file in 'bin\lit.exe', 'bin\freepinpaste-ocr-worker.exe', 'bin\pdfium.dll', 'bin\msvcp140.dll', 'bin\msvcp140_1.dll', 'bin\vcruntime140.dll', 'bin\vcruntime140_1.dll', 'models\ocria-nano\runtime\onnxruntime.dll') {
     if (!(Test-Path "$out\ocr\$file" -PathType Leaf)) { throw "Missing OCR runtime file: $file" }
 }
 Copy-Item README.md, LICENSE, THIRD_PARTY.md $out

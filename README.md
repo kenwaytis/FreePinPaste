@@ -124,7 +124,9 @@ Linux 图片复制由独立 X11 selection owner 提供 `image/png`，应用在�
 
 ### 离线 OCR：OCRia-nano-1
 
-编辑器与命令行均使用同一条本地识别路径：以原始分辨率导出选区，通过随包 LiteParse 显式调用 `ocria-nano`，从单页 JSON 取回文本。模型自动选择拉丁、中日韩、RTL 或其他文字识别器，不需要指定语言。旧配置中的 `ocr_languages` 将被忽略。模型缺失时直接报错，不回退其他引擎。识别在工作线程执行，超时 90 秒后终止子进程，清理临时文件。
+编辑器和命令行均使用 LiteParse 的页面解析流程，以 **250 DPI** 渲染截图，优先照顾小字。模型逐行自动选择拉丁、中日韩、RTL 或其他文字识别器，无需设置语言；旧配置中的 `ocr_languages` 将被忽略。模型缺失时直接报错，不回退其他引擎。
+
+桌面程序启动后在后台预加载模型，所有窗口串行复用一个本地 OCR 子进程，不监听网络端口。隐藏到托盘时保持预热；退出或重启时终止子进程。识别超时（90 秒）会终止卡住的子进程并清理临时文件，下次识别重新加载。`--ocr FILE` 始终独立运行随包 `lit`，不启动或连接托盘。
 
 **模型使用条款：**使用或再分发随包 OCR 权重及配套数据必须遵守 [LlamaIndex 的 OCRia-nano-1 模型许可](https://huggingface.co/llamaindex/OCRia-nano-1/blob/main/LICENSE)，包括第 5 条及附件 A 的用途限制；该部分不适用 FreePinPaste 的 Apache-2.0。上年总收入或累计融资超过 200 万美元的组织有个人/研究以外的用途限制；竞争产品或服务另受限制，与规模无关。完整条款随包位于 `ocr/models/ocria-nano/LICENSE`。
 
@@ -135,10 +137,10 @@ freepinpaste --ocr /path/to/image.png
 
 ## Linux 源码构建
 
-本机已使用 Rust 1.96.0、CMake、GCC 和系统开发库成功构建。Cargo 锁文件纳入仓库。依赖包括 X11/XKB、Wayland 开发库（GPUI Component 传递启用）、fontconfig/freetype、Vulkan 等；准备 OCR 运行时需要 Python 3 和 curl。
+本机已使用 Rust 1.96.0、CMake、GCC 和系统开发库成功构建。Cargo 锁文件纳入仓库。依赖包括 X11/XKB、Wayland 开发库（GPUI Component 传递启用）、fontconfig/freetype、Vulkan 等；准备 OCR 运行时需要 Python 3、curl 和 Rust 构建工具链（同时编译 `ocr-worker/`）。
 
 ```bash
-# 首次下载固定版本的 OCR 模型及原生运行时，只写 runtime/ocria 和 .cache/ocria
+# 准备固定版本的 OCR 运行时，并编译常驻子进程到 target/ocr-worker
 ./scripts/build-ocr.sh
 
 cargo build --locked

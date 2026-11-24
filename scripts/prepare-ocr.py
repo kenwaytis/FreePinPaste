@@ -99,6 +99,12 @@ def assemble(out):
             if member.isfile() and (member.name == 'LICENSE' or member.name.startswith('licenses/')):
                 (pdf_licenses / Path(member.name).name).write_bytes(tar.extractfile(member).read())
 
+    # Private stdio worker: same LiteParse version as lit, built without Tesseract.
+    build = ROOT / 'target/ocr-worker'
+    subprocess.run(['cargo', 'build', '--release', '--locked', '--manifest-path',
+                    ROOT / 'ocr-worker/Cargo.toml', '--target-dir', build], cwd=ROOT, check=True)
+    worker = 'freepinpaste-ocr-worker' + ('.exe' if WIN else '')
+    shutil.copy2(build / 'release' / worker, out / 'bin' / worker)
     if WIN:
         copy_windows_crt(out / 'bin')
     subprocess.run([out / 'bin' / exe, '--version'], check=True)

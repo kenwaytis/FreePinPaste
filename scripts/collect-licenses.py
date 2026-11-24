@@ -9,12 +9,15 @@ import sys
 out = pathlib.Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
 target = sys.argv[2] if len(sys.argv) > 2 else 'x86_64-unknown-linux-gnu'
-metadata = json.loads(subprocess.check_output([
-    "cargo", "metadata", "--locked", "--format-version=1", f"--filter-platform={target}"
-]))
+packages = {}
+for manifest in ('Cargo.toml', 'ocr-worker/Cargo.toml'):
+    metadata = json.loads(subprocess.check_output([
+        "cargo", "metadata", "--manifest-path", manifest, "--locked", "--format-version=1", f"--filter-platform={target}"
+    ]))
+    packages.update((p['id'], p) for p in metadata['packages'])
 inventory = []
-for package in metadata["packages"]:
-    if package["name"] == "freepinpaste":
+for package in packages.values():
+    if package["name"] in ("freepinpaste", "freepinpaste-ocr-worker"):
         continue
     root = pathlib.Path(package["manifest_path"]).parent
     target = out / f'{package["name"]}-{package["version"]}'

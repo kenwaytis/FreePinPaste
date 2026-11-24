@@ -125,7 +125,9 @@ fn run() -> Result<()> {
     freepinpaste::tray::start(events.clone());
     let restart = Arc::new(AtomicBool::new(false));
     let restart_requested = restart.clone();
+    let (ocr_service, ocr) = freepinpaste::ocr::DesktopOcr::start();
     gpui::Application::new().run(move |cx| {
+        cx.set_global(ocr);
         if let Err(e) = ui::init(
             cx,
             config,
@@ -141,6 +143,7 @@ fn run() -> Result<()> {
     });
     #[cfg(target_os = "windows")]
     drop(_desktop_service);
+    drop(ocr_service);
     drop(instance);
     if restart.load(Ordering::SeqCst) {
         // Never launch while holding the single-instance lock: a new process

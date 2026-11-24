@@ -44,6 +44,7 @@ pub struct State {
     pub image_clipboard: crate::clipboard::ImageClipboard,
 }
 impl Global for State {}
+impl Global for crate::ocr::OcrClient {}
 
 pub fn init(
     cx: &mut App,

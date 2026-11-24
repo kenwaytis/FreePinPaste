@@ -11,7 +11,7 @@ FreePinPaste-windows-x86_64.zip
 FreePinPaste-0.1.0-windows-x86_64-setup.exe
 FreePinPaste-windows-x86_64/
 ├── freepinpaste.exe
-├── ocr/bin/                  # lit.exe、pdfium.dll 与 app-local VC++ 运行库
+├── ocr/bin/                  # lit.exe、freepinpaste-ocr-worker.exe、pdfium.dll 与 app-local VC++ 运行库
 ├── ocr/models/ocria-nano/    # 模型、独立许可和 runtime/onnxruntime.dll
 ├── ocr/licenses/
 ├── licenses/                # Cargo 依赖清单及上游许可
@@ -81,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 # 已构建 OCR 时可传 -SkipOcr；已有 Inno Setup 可用 -Iscc 指定 ISCC.exe
 ```
 
-OCR 使用 LiteParse 2.21.0、OCRia-nano-1 v1.0.0 和 ONNX Runtime 1.31.1。构建脚本从 VS 的 `VCToolsRedistDir` 或 `vswhere` 找到 x64 VC++ 可再分发 DLL，随 `lit.exe` 放置。识别有 90 秒超时，子进程不弹控制台。模型的独立使用条款见发行包 `ocr/models/ocria-nano/LICENSE`。
+OCR 使用 LiteParse 2.21.0、OCRia-nano-1 v1.0.0 和 ONNX Runtime 1.31.1。构建脚本从 VS 的 `VCToolsRedistDir` 或 `vswhere` 找到 x64 VC++ 可再分发 DLL，随 `lit.exe` 放置。桌面启动时预热同版本 LiteParse 的 `freepinpaste-ocr-worker.exe`，跨窗口复用；CLI 仍独立调用 `lit.exe`。两者均使用 250 DPI，识别有 90 秒超时，子进程不弹控制台。模型的独立使用条款见发行包 `ocr/models/ocria-nano/LICENSE`。
 
 ## 从 Linux 开发机联调
 

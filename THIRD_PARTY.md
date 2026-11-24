@@ -7,7 +7,7 @@ FreePinPaste source is licensed under Apache-2.0. Dependency licenses remain the
 | Component | Fixed version / commit | License | Source |
 |---|---|---|---|
 | OCRia-nano-1 | v1.0.0 | OCRia-nano-1 Model License | https://huggingface.co/llamaindex/OCRia-nano-1 |
-| LiteParse native CLI | 2.21.0 | Apache-2.0 | https://github.com/run-llama/liteparse/releases/tag/crates-v2.21.0 |
+| LiteParse native CLI and Rust library (local OCR worker) | 2.21.0 | Apache-2.0 | https://github.com/run-llama/liteparse/releases/tag/crates-v2.21.0 |
 | PDFium | chromium/8172 | BSD and third-party notices | https://github.com/run-llama/pdfium-binaries |
 | Microsoft ONNX Runtime | 1.31.1 | MIT and third-party notices | https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.31.1 |
 
